@@ -1,0 +1,36 @@
+# Cloudflare Pages/Workers Sites Configuration
+name = "secureblog"
+main = "src/worker.js"
+compatibility_date = "2024-01-01"
+
+[site]
+bucket = "./dist"
+
+[env.production]
+vars = { ENVIRONMENT = "production" }
+route = "secureblog.com/*"
+
+[env.staging]
+vars = { ENVIRONMENT = "staging" }
+route = "staging.secureblog.com/*"
+
+# R2 bucket for static assets
+[[r2_buckets]]
+binding = "STATIC_ASSETS"
+bucket_name = "secureblog-static"
+
+# Security headers applied at edge
+[env.production.vars]
+CSP = "default-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+REFERRER_POLICY = "no-referrer"
+PERMISSIONS_POLICY = "accelerometer=(), battery=(), camera=(), display-capture=(), geolocation=(), gyroscope=(), microphone=(), payment=(), usb=()"
+COOP = "same-origin"
+COEP = "require-corp"
+CORP = "same-origin"
+
+# Rate limiting configuration
+[[unsafe.bindings]]
+name = "RATE_LIMITER"
+type = "ratelimit"
+namespace_id = "1"
+simple = { limit = 10, period = 60 }

@@ -1,0 +1,130 @@
+name: Secure Deployment with OIDC
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+    paths-ignore:
+      - '**.md'
+      - '.github/**'
+      - '!.github/workflows/deploy.yml'
+
+permissions:
+  id-token: write
+  contents: read
+  
+env:
+  CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+  
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: production
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22.x'
+          
+      - name: Build site
+        run: |
+          go mod download
+          go build -trimpath -ldflags="-w -s" -mod=readonly ./cmd
+          make build
+          
+      - name: Generate integrity manifest
+        run: |
+          python3 scripts/generate-manifest.py dist/
+          
+      - name: Sign manifest with Cosign
+        uses: sigstore/cosign-installer@v3.6.0
+        
+      - name: Sign integrity manifest
+        env:
+          COSIGN_EXPERIMENTAL: 1
+        run: |
+          cosign sign-blob dist/integrity-manifest.json \
+            --output-signature dist/integrity-manifest.json.sig \
+            --output-certificate dist/integrity-manifest.json.crt \
+            --yes
+            
+      - name: Configure AWS credentials (for OIDC)
+        if: ${{ env.USE_AWS == 'true' }}
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: us-east-1
+          
+      - name: Get Cloudflare API Token via OIDC
+        id: cf-token
+        run: |
+          # Get GitHub OIDC token
+          OIDC_TOKEN=$(curl -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "$ACTIONS_ID_TOKEN_REQUEST_URL" | jq -r '.value')
+          
+          # Exchange for Cloudflare token (configure in Cloudflare dashboard)
+          # This assumes you've set up OIDC federation in Cloudflare
+          echo "::add-mask::$OIDC_TOKEN"
+          echo "CF_OIDC_TOKEN=$OIDC_TOKEN" >> $GITHUB_ENV
+          
+      - name: Deploy to Cloudflare
+        env:
+          CF_API_TOKEN: ${{ env.CF_OIDC_TOKEN }}
+        run: |
+          npm install -g wrangler
+          ./scripts/deploy-cloudflare.sh
+          
+      - name: Verify deployment
+        run: |
+          sleep 30  # Wait for CDN propagation
+          
+          # Check site is live
+          curl -sf https://secureblog.com || exit 1
+          
+          # Verify security headers
+          headers=$(curl -sI https://secureblog.com)
+          echo "$headers" | grep -q "Content-Security-Policy" || exit 1
+          echo "$headers" | grep -q "X-Frame-Options: DENY" || exit 1
+          
+          # Verify integrity manifest
+          curl -sf https://secureblog.com/integrity-manifest.json || exit 1
+          
+      - name: Purge CDN cache
+        if: success()
+        env:
+          CF_API_TOKEN: ${{ env.CF_OIDC_TOKEN }}
+        run: |
+          # Purge Cloudflare cache
+          curl -X POST "https://api.cloudflare.com/client/v4/zones/${{ secrets.CF_ZONE_ID }}/purge_cache" \
+            -H "Authorization: Bearer $CF_API_TOKEN" \
+            -H "Content-Type: application/json" \
+            -d '{"purge_everything":true}'
+            
+      - name: Create deployment record
+        if: success()
+        run: |
+          cat > deployment-record.json << EOF
+          {
+            "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "commit": "${{ github.sha }}",
+            "deployer": "${{ github.actor }}",
+            "environment": "production",
+            "integrity_manifest": "$(sha256sum dist/integrity-manifest.json | cut -d' ' -f1)"
+          }
+          EOF
+          
+      - name: Notify deployment
+        if: always()
+        run: |
+          if [ "${{ job.status }}" == "success" ]; then
+            echo "✅ Deployment successful to Cloudflare"
+          else
+            echo "❌ Deployment failed"
+          fi

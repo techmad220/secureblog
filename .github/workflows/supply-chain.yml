@@ -1,0 +1,177 @@
+name: Supply Chain Security
+on:
+  pull_request:
+  push:
+    branches: [ main ]
+  schedule:
+    - cron: '0 0 * * 0' # Weekly on Sunday
+    
+permissions:
+  contents: read
+  security-events: write
+  
+jobs:
+  dependency-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.22.x"
+          
+      - name: Verify module integrity
+        run: |
+          go mod verify
+          go list -m all | grep -v "^github.com/techmad220/secureblog" > deps.txt
+          
+      - name: Check for known vulnerabilities
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          govulncheck -json ./... | tee vuln-report.json
+          
+      - name: Dependency license check
+        run: |
+          go install github.com/google/go-licenses@latest
+          go-licenses check ./...
+          
+      - name: SBOM generation
+        run: |
+          go install sigs.k8s.io/bom/cmd/bom@latest
+          bom generate -o sbom.json --format json .
+          
+      - name: Upload SBOM
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom
+          path: sbom.json
+          
+  scorecard:
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+      id-token: write
+      contents: read
+      actions: read
+      
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          
+      - name: Run Scorecard analysis
+        uses: ossf/scorecard-action@v2.3.1
+        with:
+          results_file: scorecard.json
+          results_format: json
+          publish_results: true
+          
+      - name: Upload Scorecard results
+        uses: actions/upload-artifact@v4
+        with:
+          name: scorecard-results
+          path: scorecard.json
+          
+  branch-protection:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Check branch protection
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Verify branch protection rules
+          protection=$(gh api repos/${{ github.repository }}/branches/main/protection)
+          
+          # Check required status checks
+          if ! echo "$protection" | jq -e '.required_status_checks.strict == true'; then
+            echo "⚠️  Branch protection: strict status checks not enabled"
+          fi
+          
+          # Check required reviews
+          if ! echo "$protection" | jq -e '.required_pull_request_reviews.required_approving_review_count >= 1'; then
+            echo "⚠️  Branch protection: PR reviews not required"
+          fi
+          
+          # Check signed commits
+          if ! echo "$protection" | jq -e '.required_signatures.enabled == true'; then
+            echo "⚠️  Branch protection: signed commits not required"
+          fi
+          
+  pin-dependencies:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Check action pinning
+        run: |
+          echo "Checking GitHub Actions are pinned to SHA..."
+          for workflow in .github/workflows/*.yml; do
+            if grep -E "uses: [^@]+@(main|master|v[0-9]+)" "$workflow"; then
+              echo "⚠️  Unpinned action found in $workflow"
+              echo "    Consider pinning to SHA for supply chain security"
+            fi
+          done
+          
+      - name: Check Go dependencies pinning
+        run: |
+          if grep -E "^\s*require\s+.*\s+latest" go.mod; then
+            echo "❌ Found 'latest' version in go.mod - use specific versions"
+            exit 1
+          fi
+          echo "✓ All Go dependencies are pinned"
+          
+  template-security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Scan templates for JavaScript
+        run: |
+          echo "Scanning for prohibited JavaScript..."
+          
+          # Plugin-based security checks
+          plugins_dir="plugins/security-checks"
+          mkdir -p "$plugins_dir"
+          
+          cat > "$plugins_dir/no-js-check.sh" << 'SCRIPT'
+          #!/bin/bash
+          VIOLATIONS=0
+          
+          # Check for script tags
+          if grep -r '<script' templates/ content/ 2>/dev/null; then
+            echo "❌ Found <script> tags"
+            VIOLATIONS=$((VIOLATIONS + 1))
+          fi
+          
+          # Check for inline JavaScript
+          if grep -r 'onclick\|onload\|onerror\|javascript:' templates/ content/ 2>/dev/null; then
+            echo "❌ Found inline JavaScript handlers"
+            VIOLATIONS=$((VIOLATIONS + 1))
+          fi
+          
+          # Check for external resources
+          if grep -r 'src="http\|href="http' templates/ content/ 2>/dev/null | grep -v "https://secureblog.com"; then
+            echo "❌ Found external resource references"
+            VIOLATIONS=$((VIOLATIONS + 1))
+          fi
+          
+          exit $VIOLATIONS
+          SCRIPT
+          
+          chmod +x "$plugins_dir/no-js-check.sh"
+          "$plugins_dir/no-js-check.sh"
+          
+      - name: Validate CSP headers
+        run: |
+          if [ -f security-headers.conf ]; then
+            csp=$(grep "Content-Security-Policy" security-headers.conf | head -1)
+            if echo "$csp" | grep -q "script-src\|unsafe-eval\|unsafe-inline.*script"; then
+              echo "❌ CSP allows JavaScript execution"
+              exit 1
+            fi
+            echo "✓ CSP properly restricts JavaScript"
+          fi

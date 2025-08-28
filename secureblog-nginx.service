@@ -1,0 +1,74 @@
+[Unit]
+Description=Hardened nginx for SecureBlog
+After=network.target remote-fs.target nss-lookup.target
+Wants=network-online.target
+
+[Service]
+Type=forking
+PIDFile=/run/nginx.pid
+ExecStartPre=/usr/sbin/nginx -t -c /etc/nginx/nginx-hardened.conf
+ExecStart=/usr/sbin/nginx -c /etc/nginx/nginx-hardened.conf
+ExecReload=/bin/kill -s HUP $MAINPID
+ExecStop=/bin/kill -s QUIT $MAINPID
+
+# Security hardening
+User=www-data
+Group=www-data
+PrivateTmp=yes
+NoNewPrivileges=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectKernelLogs=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+LockPersonality=yes
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+SystemCallArchitectures=native
+RemoveIPC=yes
+MemoryDenyWriteExecute=yes
+
+# Filesystem restrictions
+ReadWritePaths=/var/log/nginx
+ReadWritePaths=/var/cache/nginx
+ReadWritePaths=/run
+ReadOnlyPaths=/var/www/secureblog
+TemporaryFileSystem=/var:ro
+BindReadOnlyPaths=/etc/nginx
+BindReadOnlyPaths=/etc/letsencrypt
+PrivateMounts=yes
+
+# Resource limits
+LimitNOFILE=65536
+LimitNPROC=512
+CPUQuota=50%
+MemoryMax=256M
+TasksMax=512
+
+# Capability restrictions
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE CAP_SETUID CAP_SETGID
+AmbientCapabilities=
+
+# Network restrictions
+IPAccounting=yes
+IPAddressDeny=any
+IPAddressAllow=localhost
+IPAddressAllow=10.0.0.0/8
+IPAddressAllow=172.16.0.0/12
+IPAddressAllow=192.168.0.0/16
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=secureblog-nginx
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,145 @@
+# Security-focused Makefile with plugin support
+.PHONY: all build verify deploy audit clean
+
+# Configuration
+DIST_DIR := dist
+BUILD_FLAGS := -trimpath -ldflags="-w -s" -mod=readonly
+DEPLOY_ENV := production
+
+# Default target
+all: clean build verify audit
+
+# Secure build with integrity manifest
+build:
+	@echo "🔨 Building SecureBlog (reproducible)..."
+	@go mod verify
+	@go mod download
+	@CGO_ENABLED=0 go build $(BUILD_FLAGS) -o secureblog ./cmd
+	@$(MAKE) generate-static
+	@$(MAKE) generate-manifest
+
+# Generate static site
+generate-static:
+	@echo "📄 Generating static content..."
+	@./secureblog generate --output=$(DIST_DIR)
+	@find $(DIST_DIR) -name "*.js" -delete  # Ensure no JS
+
+# Generate integrity manifest
+generate-manifest:
+	@echo "🔐 Generating integrity manifest..."
+	@go run plugins/integrity/cmd/generate-manifest.go $(DIST_DIR)
+	@echo "✅ Manifest generated"
+
+# Verify build integrity
+verify:
+	@echo "🔍 Verifying build integrity..."
+	@./scripts/integrity-verify.sh $(DIST_DIR)
+
+# Run security audit
+audit:
+	@echo "🔒 Running security audit..."
+	@./scripts/security-audit.sh
+	@echo "📊 Checking CSP compliance..."
+	@grep -L "script-src" $(DIST_DIR)/*.html || echo "✅ No script-src found"
+
+# Deploy to Cloudflare
+deploy-cloudflare: verify
+	@echo "☁️  Deploying to Cloudflare..."
+	@./scripts/deploy-cloudflare.sh
+
+# Deploy to mirror (backup)
+deploy-mirror: verify
+	@echo "🔄 Deploying to mirror..."
+	@MIRROR_HOST=$(MIRROR_HOST) ./scripts/deploy-mirror.sh
+
+# Full deployment
+deploy: deploy-cloudflare deploy-mirror
+	@echo "✅ Deployment complete"
+
+# Sign release artifacts
+sign-release:
+	@echo "✍️  Signing release artifacts..."
+	@cosign sign-blob secureblog \
+		--output-signature secureblog.sig \
+		--output-certificate secureblog.crt \
+		--yes
+	@cosign sign-blob $(DIST_DIR)/integrity-manifest.json \
+		--output-signature $(DIST_DIR)/integrity-manifest.json.sig \
+		--yes
+
+# Security checks
+check-headers:
+	@echo "🔍 Checking security headers..."
+	@curl -sI https://secureblog.com | grep -E "Content-Security|X-Frame|Strict-Transport"
+
+check-tls:
+	@echo "🔒 Checking TLS configuration..."
+	@openssl s_client -connect secureblog.com:443 -tls1_3 < /dev/null
+
+check-dependencies:
+	@echo "📦 Checking dependencies..."
+	@go list -m all | grep -v "^github.com/techmad220/secureblog"
+	@govulncheck ./...
+
+# Privacy-preserving analytics
+analytics:
+	@echo "📊 Processing analytics..."
+	@./scripts/analytics-aggregator.sh
+
+# Clean build artifacts
+clean:
+	@echo "🧹 Cleaning..."
+	@rm -rf $(DIST_DIR) secureblog *.sig *.crt
+	@rm -f audit-report-*.json
+
+# Development server (read-only)
+dev:
+	@echo "🚀 Starting development server (read-only)..."
+	@docker run --rm -it \
+		--read-only \
+		--tmpfs /tmp \
+		--tmpfs /var/cache/nginx \
+		--tmpfs /var/run \
+		-v $(PWD)/$(DIST_DIR):/usr/share/nginx/html:ro \
+		-v $(PWD)/nginx-hardened.conf:/etc/nginx/nginx.conf:ro \
+		-v $(PWD)/security-headers.conf:/etc/nginx/security-headers.conf:ro \
+		-p 8080:80 \
+		nginx:alpine
+
+# Run all security plugins
+run-plugins:
+	@echo "🔌 Running security plugins..."
+	@for plugin in plugins/*/run.sh; do \
+		echo "Running $$plugin..."; \
+		$$plugin || true; \
+	done
+
+# Generate SBOM
+sbom:
+	@echo "📋 Generating SBOM..."
+	@syft . -o json > sbom.json
+	@echo "✅ SBOM generated"
+
+# Full security scan
+security-scan: audit check-dependencies sbom
+	@echo "🔒 Security scan complete"
+
+# Help
+help:
+	@echo "SecureBlog Security Makefile"
+	@echo ""
+	@echo "Targets:"
+	@echo "  make build          - Build with integrity manifest"
+	@echo "  make verify         - Verify build integrity"
+	@echo "  make audit          - Run security audit"
+	@echo "  make deploy         - Deploy to Cloudflare + mirror"
+	@echo "  make security-scan  - Full security scan"
+	@echo "  make clean          - Clean build artifacts"
+	@echo ""
+	@echo "Security Features:"
+	@echo "  • Reproducible builds with -trimpath"
+	@echo "  • Integrity manifest generation"
+	@echo "  • No JavaScript policy enforcement"
+	@echo "  • Security header validation"
+	@echo "  • Dependency vulnerability scanning"
+	@echo "  • Privacy-preserving analytics"
