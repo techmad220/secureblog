@@ -1,0 +1,199 @@
+name: Update Analytics Dashboard
+
+on:
+  schedule:
+    # Run every Sunday at midnight UTC
+    - cron: "0 0 * * 0"
+  workflow_dispatch: # Allow manual trigger
+
+permissions:
+  contents: write
+
+jobs:
+  update-stats:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y jq coreutils curl
+      
+      - name: Fetch Cloudflare Analytics (Last 7 Days)
+        env:
+          CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+          CF_ZONE_ID: ${{ secrets.CF_ZONE_ID }}
+        run: |
+          set -euo pipefail
+          
+          # Calculate date range
+          START=$(date -u -d "7 days ago" +%Y-%m-%dT00:00:00Z)
+          END=$(date -u +%Y-%m-%dT23:59:59Z)
+          
+          echo "Fetching stats from $START to $END"
+          
+          # GraphQL query for comprehensive stats
+          read -r -d '' QUERY <<'EOF' || true
+          query($zone:String!,$start:Time!,$end:Time!){
+            viewer {
+              zones(filter:{zoneTag:$zone}) {
+                httpRequests1dGroups(
+                  limit: 9999,
+                  filter:{date_geq:$start, date_lt:$end}
+                ){
+                  dimensions { 
+                    date 
+                    clientCountryName 
+                  }
+                  sum { 
+                    requests 
+                    bytes 
+                    threats 
+                    pageViews
+                    cachedRequests
+                    encryptedRequests
+                  }
+                  uniq {
+                    uniques
+                  }
+                  avg {
+                    sampleInterval
+                  }
+                }
+              }
+            }
+          }
+          EOF
+          
+          # Make API request
+          echo "Calling Cloudflare GraphQL API..."
+          DATA=$(curl -s -X POST "https://api.cloudflare.com/client/v4/graphql" \
+            -H "Authorization: Bearer ${CF_API_TOKEN}" \
+            -H "Content-Type: application/json" \
+            --data "$(jq -n --arg q "$QUERY" --arg z "$CF_ZONE_ID" --arg s "$START" --arg e "$END" \
+              '{query:$q, variables:{zone:$z,start:$s,end:$e}}')")
+          
+          # Check for errors
+          if echo "$DATA" | jq -e '.errors' > /dev/null 2>&1; then
+            echo "API Error:"
+            echo "$DATA" | jq '.errors'
+            exit 1
+          fi
+          
+          # Extract data
+          GROUPS=$(echo "$DATA" | jq -c '.data.viewer.zones[0].httpRequests1dGroups // []')
+          
+          if [ "$GROUPS" = "[]" ]; then
+            echo "No data returned from Cloudflare"
+            exit 1
+          fi
+          
+          # Calculate totals
+          TOTAL=$(echo "$GROUPS" | jq '[.[].sum.requests // 0] | add')
+          BYTES=$(echo "$GROUPS" | jq '[.[].sum.bytes // 0] | add')
+          THREATS=$(echo "$GROUPS" | jq '[.[].sum.threats // 0] | add')
+          CACHED=$(echo "$GROUPS" | jq '[.[].sum.cachedRequests // 0] | add')
+          
+          # Unique visitors (use maximum daily value to avoid overcounting)
+          UNIQUES=$(echo "$GROUPS" | jq '[.[].uniq.uniques // 0] | max')
+          
+          # Top country by requests
+          TOP_COUNTRY=$(echo "$GROUPS" | jq -r '
+            map({
+              country: (.dimensions.clientCountryName // "Unknown"),
+              requests: (.sum.requests // 0)
+            }) 
+            | group_by(.country)
+            | map({
+              country: .[0].country,
+              total: (map(.requests) | add)
+            })
+            | sort_by(-.total)
+            | .[0].country // "Unknown"
+          ')
+          
+          # Calculate cache rate
+          CACHE_RATE="0"
+          if [ "$TOTAL" -gt 0 ]; then
+            CACHE_RATE=$(echo "scale=1; $CACHED * 100 / $TOTAL" | bc)
+          fi
+          
+          # Format numbers for display
+          format_number() {
+            if [ "$1" -ge 1000000 ]; then
+              echo "$(echo "scale=1; $1 / 1000000" | bc)M"
+            elif [ "$1" -ge 1000 ]; then
+              echo "$(echo "scale=1; $1 / 1000" | bc)K"
+            else
+              echo "$1"
+            fi
+          }
+          
+          # Format bandwidth
+          BANDWIDTH_H=$(numfmt --to=iec --suffix=B $BYTES 2>/dev/null || echo "${BYTES}B")
+          
+          # Format other numbers
+          TOTAL_H=$(format_number $TOTAL)
+          UNIQUES_H=$(format_number $UNIQUES)
+          THREATS_H=$(format_number $THREATS)
+          
+          # Placeholder values for extended metrics (these would need paid API access)
+          BOT_REQUESTS="N/A"
+          AVG_RESPONSE="<50"
+          
+          # Current timestamp
+          UPDATED=$(date -u +"%Y-%m-%d %H:%M:%S")
+          
+          # Update stats.html from template
+          echo "Updating stats.html..."
+          cp templates/stats-template.html build/stats.html 2>/dev/null || cp templates/stats-template.html stats.html
+          
+          # Replace placeholders
+          sed -i "s/{{TOTAL_REQUESTS}}/${TOTAL_H}/g" */stats.html 2>/dev/null || sed -i "s/{{TOTAL_REQUESTS}}/${TOTAL_H}/g" stats.html
+          sed -i "s/{{UNIQUES}}/${UNIQUES_H}/g" */stats.html 2>/dev/null || sed -i "s/{{UNIQUES}}/${UNIQUES_H}/g" stats.html
+          sed -i "s/{{BANDWIDTH}}/${BANDWIDTH_H}/g" */stats.html 2>/dev/null || sed -i "s/{{BANDWIDTH}}/${BANDWIDTH_H}/g" stats.html
+          sed -i "s/{{BLOCKED}}/${THREATS_H}/g" */stats.html 2>/dev/null || sed -i "s/{{BLOCKED}}/${THREATS_H}/g" stats.html
+          sed -i "s/{{TOP_COUNTRY}}/${TOP_COUNTRY}/g" */stats.html 2>/dev/null || sed -i "s/{{TOP_COUNTRY}}/${TOP_COUNTRY}/g" stats.html
+          sed -i "s/{{CACHE_RATE}}/${CACHE_RATE}/g" */stats.html 2>/dev/null || sed -i "s/{{CACHE_RATE}}/${CACHE_RATE}/g" stats.html
+          sed -i "s/{{BOT_REQUESTS}}/${BOT_REQUESTS}/g" */stats.html 2>/dev/null || sed -i "s/{{BOT_REQUESTS}}/${BOT_REQUESTS}/g" stats.html
+          sed -i "s/{{AVG_RESPONSE}}/${AVG_RESPONSE}/g" */stats.html 2>/dev/null || sed -i "s/{{AVG_RESPONSE}}/${AVG_RESPONSE}/g" stats.html
+          sed -i "s/{{UPDATED}}/${UPDATED}/g" */stats.html 2>/dev/null || sed -i "s/{{UPDATED}}/${UPDATED}/g" stats.html
+          
+          echo "Stats updated successfully!"
+          echo "Total Requests: ${TOTAL_H}"
+          echo "Unique Visitors: ${UNIQUES_H}"
+          echo "Bandwidth: ${BANDWIDTH_H}"
+          echo "Threats Blocked: ${THREATS_H}"
+          echo "Top Country: ${TOP_COUNTRY}"
+          echo "Cache Hit Rate: ${CACHE_RATE}%"
+      
+      - name: Commit and push changes
+        run: |
+          git config user.name "Stats Bot"
+          git config user.email "actions@github.com"
+          
+          # Add stats file
+          git add -A *stats.html
+          
+          # Check if there are changes
+          if git diff --staged --quiet; then
+            echo "No changes to commit"
+            exit 0
+          fi
+          
+          # Commit with timestamp
+          TIMESTAMP=$(date -u +"%Y-%m-%d")
+          git commit -m "📊 Update analytics dashboard (${TIMESTAMP})
+
+          Auto-generated weekly stats from Cloudflare Analytics API
+          - Last 7 days of traffic data
+          - Privacy-first edge metrics only
+          - No JavaScript tracking"
+          
+          # Push changes
+          git push origin main

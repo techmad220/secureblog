@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src 'self' data:">
+    <title>Transparency Dashboard - SecureBlog</title>
+    <meta name="description" content="Privacy-first analytics dashboard. No JavaScript, no cookies, edge-level metrics only.">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            line-height: 1.6;
+            color: #e0e0e0;
+            background: #0a0a0a;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        h1 { 
+            color: #00ff41; 
+            border-bottom: 2px solid #00ff41; 
+            padding-bottom: 10px; 
+            margin-bottom: 1em; 
+        }
+        h2 {
+            color: #00ff41;
+            margin: 1.5em 0 0.5em;
+        }
+        .privacy-banner {
+            background: linear-gradient(135deg, #1a1a1a 0%, #0f1419 100%);
+            border: 1px solid #00ff41;
+            border-radius: 8px;
+            padding: 1.5em;
+            margin: 2em 0;
+        }
+        .privacy-banner h3 {
+            color: #00ff41;
+            margin-bottom: 0.5em;
+        }
+        .privacy-banner ul {
+            list-style: none;
+            padding: 0;
+        }
+        .privacy-banner li {
+            padding: 0.3em 0;
+            padding-left: 1.5em;
+            position: relative;
+        }
+        .privacy-banner li:before {
+            content: "✓";
+            position: absolute;
+            left: 0;
+            color: #00ff41;
+        }
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin: 2em 0;
+        }
+        .stat-card {
+            background: #1a1a1a;
+            border: 1px solid #333;
+            border-radius: 8px;
+            padding: 1.5em;
+            text-align: center;
+        }
+        .stat-value {
+            font-size: 2.5em;
+            color: #00ff41;
+            font-weight: bold;
+            display: block;
+            margin-bottom: 0.2em;
+        }
+        .stat-label {
+            color: #888;
+            font-size: 0.9em;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+        .details {
+            background: #1a1a1a;
+            border: 1px solid #333;
+            border-radius: 8px;
+            padding: 1.5em;
+            margin: 2em 0;
+        }
+        .details ul {
+            list-style: none;
+            padding: 0;
+        }
+        .details li {
+            padding: 0.5em 0;
+            border-bottom: 1px solid #333;
+            display: flex;
+            justify-content: space-between;
+        }
+        .details li:last-child {
+            border-bottom: none;
+        }
+        .details strong {
+            color: #00ff41;
+        }
+        .metadata {
+            color: #666;
+            font-size: 0.85em;
+            margin-top: 2em;
+            padding-top: 1em;
+            border-top: 1px solid #333;
+        }
+        a {
+            color: #00ff41;
+            text-decoration: none;
+            border-bottom: 1px dotted rgba(0, 255, 65, 0.5);
+        }
+        a:hover {
+            border-bottom-color: #00ff41;
+        }
+        nav {
+            margin: 1em 0;
+            padding: 1em 0;
+            border-bottom: 1px solid #333;
+        }
+        nav a {
+            margin-right: 1em;
+        }
+        footer {
+            margin-top: 3em;
+            padding-top: 1em;
+            border-top: 1px solid #333;
+            color: #666;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>🔒 Transparency Dashboard</h1>
+        <p>Traffic & security metrics auto-updated weekly from Cloudflare edge analytics.</p>
+        <nav>
+            <a href="/">← Home</a>
+            <a href="/feed.xml">RSS</a>
+            <a href="/sitemap.xml">Sitemap</a>
+        </nav>
+    </header>
+
+    <div class="privacy-banner">
+        <h3>🛡️ Privacy-First Analytics</h3>
+        <ul>
+            <li>No JavaScript tracking code</li>
+            <li>No cookies or fingerprinting</li>
+            <li>No personal data collection</li>
+            <li>All metrics from Cloudflare edge</li>
+            <li>GDPR/CCPA compliant by design</li>
+        </ul>
+    </div>
+
+    <main>
+        <h2>Last 7 Days</h2>
+        
+        <div class="stats-grid">
+            <div class="stat-card">
+                <span class="stat-value">{{TOTAL_REQUESTS}}</span>
+                <span class="stat-label">Total Requests</span>
+            </div>
+            <div class="stat-card">
+                <span class="stat-value">{{UNIQUES}}</span>
+                <span class="stat-label">Unique Visitors</span>
+            </div>
+            <div class="stat-card">
+                <span class="stat-value">{{BANDWIDTH}}</span>
+                <span class="stat-label">Data Served</span>
+            </div>
+            <div class="stat-card">
+                <span class="stat-value">{{BLOCKED}}</span>
+                <span class="stat-label">Threats Blocked</span>
+            </div>
+        </div>
+
+        <div class="details">
+            <h3>Additional Details</h3>
+            <ul>
+                <li>
+                    <span>Top Country:</span>
+                    <strong>{{TOP_COUNTRY}}</strong>
+                </li>
+                <li>
+                    <span>Cache Hit Rate:</span>
+                    <strong>{{CACHE_RATE}}%</strong>
+                </li>
+                <li>
+                    <span>Bot Requests Filtered:</span>
+                    <strong>{{BOT_REQUESTS}}</strong>
+                </li>
+                <li>
+                    <span>Average Response Time:</span>
+                    <strong>{{AVG_RESPONSE}}ms</strong>
+                </li>
+            </ul>
+        </div>
+
+        <h2>What This Means</h2>
+        <div class="details">
+            <p>
+                <strong>{{TOTAL_REQUESTS}}</strong> total HTTP requests were made to this blog in the last 7 days.
+                Approximately <strong>{{UNIQUES}}</strong> unique visitors accessed the content (deduplicated daily maximum).
+                The blog served <strong>{{BANDWIDTH}}</strong> of data while blocking <strong>{{BLOCKED}}</strong> malicious requests.
+            </p>
+            <br>
+            <p>
+                Most traffic originated from <strong>{{TOP_COUNTRY}}</strong>. 
+                All metrics are collected at Cloudflare's edge servers before requests reach our origin.
+                No tracking scripts run in your browser, and no personal information is stored.
+            </p>
+        </div>
+    </main>
+
+    <div class="metadata">
+        <p><strong>Last Updated:</strong> {{UPDATED}} UTC</p>
+        <p><strong>Update Frequency:</strong> Weekly (Sundays at 00:00 UTC)</p>
+        <p><strong>Data Source:</strong> Cloudflare GraphQL API (edge analytics)</p>
+        <p><strong>Note:</strong> Unique visitor counts are approximated using daily maximums to avoid overcounting. No individual visitor tracking occurs.</p>
+    </div>
+
+    <footer>
+        <p>© 2024 SecureBlog - Privacy-first, zero-JavaScript blogging</p>
+        <p>This page contains no tracking code, sets no cookies, and respects your privacy.</p>
+    </footer>
+</body>
+</html>
