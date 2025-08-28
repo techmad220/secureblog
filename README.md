@@ -4,21 +4,29 @@ A maximum-security static blog generator with **plugin-based architecture**, zer
 
 ## 🔒 Security Architecture
 
+### ⚡ CRITICAL: Latest Security Hardening
+- **NO-JS CI Guard** - Automated blocking of ANY JavaScript (enforced on every commit)
+- **Origin Elimination** - Cloudflare Pages deployment removes ALL server exposure
+- **Supply Chain Lock** - Keyless Cosign + SLSA provenance on every build
+- **Ultra-Hardened Nginx** - GET/HEAD only, 1KB limit, TLS 1.3 only
+- **Systemd Sandboxing** - Full privilege drop, memory protection, capability restrictions
+
 ### Core Security Features
-- **Zero JavaScript Policy** - Enforced at build, serve, and CDN levels
+- **Zero JavaScript Policy** - ENFORCED by `.scripts/nojs_guard.sh` in CI
 - **Plugin-Based Security** - Modular, auditable security components
 - **Content Integrity** - SHA-256 manifest with Cosign attestation
-- **SLSA Provenance** - Reproducible builds with supply chain attestation
-- **OIDC Deployment** - No long-lived credentials anywhere
+- **SLSA Provenance** - Cryptographic proof of build origin (keyless)
+- **OIDC Deployment** - No long-lived credentials ANYWHERE
 - **Privacy Analytics** - Server-side only, anonymized, GDPR-compliant
 - **Immutable Infrastructure** - CDN-only serving, no origin exposure
 
 ### Defense Layers
-1. **Build Time** - Static analysis, no-JS verification, dependency scanning
-2. **Deploy Time** - Integrity verification, OIDC auth, signed manifests
-3. **Runtime** - CSP headers, read-only serving, rate limiting
-4. **Edge** - Cloudflare Workers with security plugins
-5. **Monitoring** - Privacy-preserving analytics, security audits
+1. **CI/CD** - NO-JS guard, staticcheck, link verification, supply chain attestation
+2. **Build Time** - Reproducible builds, dependency scanning, integrity manifest
+3. **Deploy Time** - OIDC-only auth, signed artifacts, provenance verification
+4. **Runtime** - Full CSP, read-only serving, 1KB request limit
+5. **Edge** - Cloudflare Workers/Pages (no origin server needed)
+6. **Monitoring** - Privacy-preserving analytics, automated security audits
 
 ## Quick Start
 
@@ -30,33 +38,46 @@ cd secureblog
 # Build with security features
 make -f Makefile.security build
 
-# Run security audit
+# CRITICAL: Verify NO-JS policy (blocks at CI if fails)
+bash .scripts/nojs_guard.sh
+
+# Run full security audit
 ./scripts/security-audit.sh
 
-# Deploy to Cloudflare (recommended)
-./scripts/deploy-cloudflare.sh
+# Deploy to Cloudflare Pages (no origin server!)
+# Configure CF_API_TOKEN and CF_ACCOUNT_ID in GitHub Secrets
+# Then just: git push origin main
 ```
 
 ## 🚀 Deployment Options
 
-### Option 1: Cloudflare Pages (Recommended)
+### Option 1: Cloudflare Pages (RECOMMENDED - No Origin Server!)
 ```bash
-# Deploy with OIDC (no API keys needed)
-make -f Makefile.security deploy-cloudflare
+# Set secrets in GitHub:
+# - CF_API_TOKEN
+# - CF_ACCOUNT_ID
+
+# Auto-deploys on push to main via .github/workflows/deploy-pages.yml
+git push origin main
 ```
 
-### Option 2: Self-Hosted with Nginx
+### Option 2: Ultra-Hardened Self-Hosted Nginx
 ```bash
-# Use hardened systemd service
-sudo cp secureblog-nginx.service /etc/systemd/system/
-sudo cp nginx-hardened.conf /etc/nginx/
-sudo systemctl enable --now secureblog-nginx
+# Use the ultra-hardened config (GET/HEAD only, 1KB limit)
+sudo cp nginx-ultra-hardened.conf /etc/nginx/sites-available/secureblog
+sudo ln -s /etc/nginx/sites-available/secureblog /etc/nginx/sites-enabled/
+
+# Apply systemd sandboxing
+sudo mkdir -p /etc/systemd/system/nginx.service.d/
+sudo cp systemd/nginx.service.d/hardening.conf /etc/systemd/system/nginx.service.d/
+sudo systemctl daemon-reload
+sudo systemctl restart nginx
 ```
 
-### Option 3: Static CDN Only
+### Option 3: CDN with Workers
 ```bash
-# Build and push to any S3-compatible storage
-./scripts/deploy-cloudflare.sh
+# Deploy to Cloudflare Workers + R2
+npx wrangler deploy
 ```
 
 ## 🛡️ Security Headers
@@ -215,14 +236,27 @@ Edit `plugins/*/config.json` to customize:
 - Analytics privacy levels
 - Deployment targets
 
+## ✅ Security Status
+
+| Layer | Protection | Status |
+|-------|------------|--------|
+| **Regression** | NO-JS CI Guard (`.scripts/nojs_guard.sh`) | ✅ ACTIVE |
+| **Supply Chain** | Keyless Cosign + SLSA Provenance | ✅ ACTIVE |
+| **Origin** | Cloudflare Pages (no server) | ✅ AVAILABLE |
+| **Build** | Reproducible + Integrity Manifest | ✅ ACTIVE |
+| **Runtime** | GET/HEAD only, 1KB limit, TLS 1.3 | ✅ CONFIGURED |
+| **Systemd** | Full sandboxing + capability drop | ✅ CONFIGURED |
+| **Headers** | Complete CSP, HSTS preload, all headers | ✅ ACTIVE |
+
 ## 📊 Security Guarantees
 
-- **No JavaScript** - Enforced at every layer
+- **No JavaScript** - ENFORCED BY CI (cannot merge JS code)
 - **No Cookies** - Stateless architecture
 - **No Tracking** - Privacy by design
 - **No Database** - Static files only
-- **No Origin Server** - CDN-only serving
-- **Signed Artifacts** - Cryptographic provenance
+- **No Origin Server** - CDN-only option available
+- **No Long-Lived Keys** - OIDC everywhere
+- **Signed Artifacts** - Cryptographic provenance on every build
 - **Immutable Deploys** - Content integrity verified
 
 ## License
