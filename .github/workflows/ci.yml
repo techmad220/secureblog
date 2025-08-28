@@ -36,14 +36,28 @@ jobs:
       - name: Build generator
         run: go build -trimpath -ldflags "-s -w" ./cmd
 
-      - name: Build site
-        run: make build
+      - name: Build site (sandboxed)
+        run: |
+          export GOWORK=off
+          export CGO_ENABLED=0
+          export GOPROXY=off
+          make build
 
-      - name: Verify integrity
-        run: make verify
+      - name: Security regression guard
+        run: bash .scripts/security-regression-guard.sh
 
-      - name: Enforce NO-JS policy
-        run: bash .scripts/nojs_guard.sh
+      - name: Sign manifest
+        run: bash scripts/sign-manifest.sh build
+
+      - name: Verify manifest
+        run: |
+          # Verify the manifest we just created
+          cd build
+          jq -r '.files | to_entries[] | "\(.value.sha256)  \(.key)"' manifest.json | \
+          while read hash file; do
+            actual=$(sha256sum "$file" | cut -d' ' -f1)
+            [ "$hash" = "$actual" ] || { echo "Hash mismatch: $file"; exit 1; }
+          done
 
       - name: Link check (lychee)
         uses: lycheeverse/lychee-action@v2

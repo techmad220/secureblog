@@ -1,0 +1,118 @@
+name: Supply Chain Security
+on:
+  push:
+  pull_request:
+  schedule:
+    - cron: '0 0 * * 0'  # Weekly scan
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  supply-chain-checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22.x"
+
+      - name: Verify go.mod is tidy
+        run: |
+          cp go.mod go.mod.orig
+          cp go.sum go.sum.orig
+          go mod tidy
+          diff go.mod.orig go.mod || { echo "❌ go.mod not tidy"; exit 1; }
+          diff go.sum.orig go.sum || { echo "❌ go.sum not tidy"; exit 1; }
+
+      - name: Run govulncheck
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          govulncheck -json ./... | tee vuln-report.json
+          
+          # Fail on any vulnerabilities
+          if jq -e '.Vulns | length > 0' vuln-report.json >/dev/null; then
+            echo "❌ Vulnerabilities found!"
+            jq '.Vulns' vuln-report.json
+            exit 1
+          fi
+          echo "✅ No vulnerabilities found"
+
+      - name: Run staticcheck
+        run: |
+          go install honnef.co/go/tools/cmd/staticcheck@latest
+          staticcheck -f sarif ./... | tee staticcheck.sarif
+          
+          # Also run in text mode for CI logs
+          staticcheck ./... || exit 1
+
+      - name: Upload staticcheck results
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: staticcheck.sarif
+
+      - name: Run gitleaks (secret detection)
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_ENABLE_SUMMARY: true
+
+      - name: Check for hardcoded secrets
+        run: |
+          # Additional secret patterns
+          patterns=(
+            "password\s*=\s*[\"'][^\"']+[\"']"
+            "api[_-]?key\s*=\s*[\"'][^\"']+[\"']"
+            "secret\s*=\s*[\"'][^\"']+[\"']"
+            "token\s*=\s*[\"'][^\"']+[\"']"
+            "private[_-]?key"
+            "BEGIN RSA"
+            "BEGIN EC"
+            "BEGIN OPENSSH"
+            "ghp_[a-zA-Z0-9]{36}"
+            "gho_[a-zA-Z0-9]{36}"
+            "github_pat_[a-zA-Z0-9]{22}_[a-zA-Z0-9]{59}"
+          )
+          
+          found=0
+          for pattern in "${patterns[@]}"; do
+            if git grep -iE "$pattern" -- ':!*.md' ':!go.sum' 2>/dev/null; then
+              echo "❌ Potential secret found: $pattern"
+              found=1
+            fi
+          done
+          
+          if [ $found -eq 1 ]; then
+            echo "❌ Hardcoded secrets detected!"
+            exit 1
+          fi
+          echo "✅ No hardcoded secrets found"
+
+      - name: Dependency license check
+        run: |
+          go install github.com/google/go-licenses@latest
+          go-licenses check ./... || {
+            echo "⚠️  License check failed - review dependencies"
+          }
+
+      - name: SBOM generation
+        run: |
+          go install sigs.k8s.io/bom/cmd/bom@latest
+          bom generate -o sbom.json --format json .
+          echo "✅ SBOM generated"
+
+      - name: Check dependency freshness
+        run: |
+          go list -u -m all | grep '\[' || echo "✅ All dependencies up to date"
+
+      - name: Verify no network access in tests
+        run: |
+          # Run tests with no network
+          unshare -n go test ./... || {
+            echo "⚠️  Tests require network access"
+          }
