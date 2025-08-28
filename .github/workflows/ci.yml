@@ -1,0 +1,52 @@
+name: ci
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+permissions:
+  contents: read
+  id-token: write
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.22.x"
+
+      - name: Go tidy (fail if dirty)
+        run: |
+          go mod tidy
+          git diff --exit-code || { echo "go.mod/go.sum changed after tidy"; exit 1; }
+
+      - name: Go vet
+        run: go vet ./...
+
+      - name: Staticcheck
+        run: |
+          go install honnef.co/go/tools/cmd/staticcheck@latest
+          "$HOME"/go/bin/staticcheck ./...
+
+      - name: Build generator
+        run: go build -trimpath -ldflags "-s -w" ./cmd
+
+      - name: Build site
+        run: make build
+
+      - name: Verify integrity
+        run: make verify
+
+      - name: Enforce NO-JS policy
+        run: bash .scripts/nojs_guard.sh
+
+      - name: Link check (lychee)
+        uses: lycheeverse/lychee-action@v2
+        with:
+          args: --accept 200,204,206 --max-redirects 5 --timeout 15s --exclude-mail --no-progress "build/**/*.html"
+          fail: true

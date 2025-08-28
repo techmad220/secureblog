@@ -1,0 +1,24 @@
+name: deploy-pages
+on:
+  push:
+    branches: [ "main" ]
+permissions:
+  contents: read
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - uses: actions/setup-go@v5
+        with: { go-version: "1.22.x" }
+      - name: Build site
+        run: make build
+      - name: Deploy to Cloudflare Pages
+        uses: cloudflare/pages-action@v1
+        with:
+          apiToken: ${{ secrets.CF_API_TOKEN }}
+          accountId: ${{ secrets.CF_ACCOUNT_ID }}
+          projectName: secureblog
+          directory: build
+          gitHubToken: ${{ secrets.GITHUB_TOKEN }}

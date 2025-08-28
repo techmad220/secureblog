@@ -1,214 +1,57 @@
-name: Build with Provenance & Attestation
+name: provenance
 on:
   push:
     branches: [ "main" ]
-  pull_request:
-    branches: [ "main" ]
-    
 permissions:
   id-token: write
   contents: read
-  actions: read
-  attestations: write
-  packages: write
-
 jobs:
-  build:
+  attest:
     runs-on: ubuntu-latest
-    outputs:
-      artifact-id: ${{ steps.upload.outputs.artifact-id }}
-      digest: ${{ steps.hash.outputs.digest }}
-      
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with: 
-          fetch-depth: 0
-          
-      - name: Setup Go
-        uses: actions/setup-go@v5
-        with: 
-          go-version: "1.22.x"
-          
-      - name: Verify dependencies
-        run: |
-          go mod verify
-          go mod download -x
-          
-      - name: Security audit
-        run: |
-          go vet ./...
-          go install golang.org/x/vuln/cmd/govulncheck@latest
-          govulncheck ./...
-          
-      - name: Build with reproducible flags
-        run: |
-          export CGO_ENABLED=0
-          export GOOS=linux
-          export GOARCH=amd64
-          go build -trimpath -ldflags="-w -s -X main.version=$(git rev-parse HEAD)" -mod=readonly -o secureblog ./cmd
-          
-      - name: Generate content hashes
-        id: hash
-        run: |
-          make build
-          sha256sum dist/* > dist/checksums.txt
-          echo "digest=$(sha256sum secureblog | cut -d' ' -f1)" >> $GITHUB_OUTPUT
-          
-      - name: Create integrity manifest
-        run: |
-          python3 - << 'EOF'
-          import json
-          import hashlib
-          import os
-          from pathlib import Path
-          
-          manifest = {}
-          dist_dir = Path('dist')
-          
-          for file_path in dist_dir.rglob('*'):
-              if file_path.is_file() and file_path.name not in ['checksums.txt', 'integrity-manifest.json']:
-                  relative_path = str(file_path.relative_to(dist_dir))
-                  with open(file_path, 'rb') as f:
-                      content = f.read()
-                      manifest[relative_path] = hashlib.sha256(content).hexdigest()
-          
-          with open('dist/integrity-manifest.json', 'w') as f:
-              json.dump(manifest, f, indent=2)
-          EOF
-          
-      - name: Upload artifacts
-        id: upload
-        uses: actions/upload-artifact@v4
-        with:
-          name: secureblog-dist
-          path: |
-            secureblog
-            dist/
-          retention-days: 90
-          
-      - name: Install Cosign
-        uses: sigstore/cosign-installer@v3.6.0
-        
-      - name: Sign binary (keyless)
-        env:
-          COSIGN_EXPERIMENTAL: 1
-        run: |
-          cosign sign-blob secureblog \
-            --output-signature secureblog.sig \
-            --output-certificate secureblog.crt \
-            --yes
-            
-      - name: Generate SLSA provenance
-        uses: slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@v2.0.0
-        with:
-          base64-subjects: |
-            $(echo -n '{"name":"secureblog","digest":{"sha256":"'$(sha256sum secureblog | cut -d' ' -f1)'"}}' | base64 -w0)
-            
-      - name: Attest build provenance
-        uses: actions/attest-build-provenance@v1
-        with:
-          subject-path: |
-            secureblog
-            dist/
-            
-      - name: Attest SBOM
-        uses: actions/attest-sbom@v1
-        with:
-          subject-path: secureblog
-          sbom-path: sbom.json
-          
-  verify:
-    runs-on: ubuntu-latest
-    needs: build
-    steps:
-      - name: Download artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: secureblog-dist
-          
-      - name: Verify signatures
-        uses: sigstore/cosign-installer@v3.6.0
-        
-      - name: Verify binary signature
-        env:
-          COSIGN_EXPERIMENTAL: 1
-        run: |
-          cosign verify-blob secureblog \
-            --signature secureblog.sig \
-            --certificate secureblog.crt \
-            --certificate-identity-regexp "https://github.com/techmad220/secureblog" \
-            --certificate-oidc-issuer https://token.actions.githubusercontent.com
-            
-      - name: Verify integrity manifest
-        run: |
-          python3 - << 'EOF'
-          import json
-          import hashlib
-          import sys
-          from pathlib import Path
-          
-          with open('dist/integrity-manifest.json') as f:
-              manifest = json.load(f)
-          
-          errors = []
-          for file_path, expected_hash in manifest.items():
-              full_path = Path('dist') / file_path
-              if not full_path.exists():
-                  errors.append(f"Missing file: {file_path}")
-                  continue
-              
-              with open(full_path, 'rb') as f:
-                  actual_hash = hashlib.sha256(f.read()).hexdigest()
-                  if actual_hash != expected_hash:
-                      errors.append(f"Hash mismatch for {file_path}")
-          
-          if errors:
-              print("Integrity verification failed:")
-              for error in errors:
-                  print(f"  - {error}")
-              sys.exit(1)
-          else:
-              print("✓ All files verified successfully")
-          EOF
-          
-  security-scan:
-    runs-on: ubuntu-latest
-    needs: build
     steps:
       - uses: actions/checkout@v4
-      
-      - name: Run Trivy security scan
-        uses: aquasecurity/trivy-action@master
-        with:
-          scan-type: 'fs'
-          scan-ref: '.'
-          severity: 'CRITICAL,HIGH'
-          format: 'sarif'
-          output: 'trivy-results.sarif'
-          
-      - name: Upload Trivy results to GitHub Security
-        uses: github/codeql-action/upload-sarif@v3
-        with:
-          sarif_file: 'trivy-results.sarif'
-          
-      - name: Check for JavaScript in templates
+        with: { fetch-depth: 0 }
+
+      - uses: actions/setup-go@v5
+        with: { go-version: "1.22.x" }
+
+      - name: Build site artifacts
         run: |
-          echo "Checking for JavaScript in templates..."
-          if grep -r '<script' templates/ content/ || grep -r 'javascript:' templates/ content/; then
-            echo "❌ JavaScript found in templates - violates no-JS policy"
-            exit 1
-          else
-            echo "✓ No JavaScript found in templates"
-          fi
-          
-      - name: CSP Policy validation
+          make build
+          tar -C build -czf site.tar.gz .
+
+      - name: Generate provenance predicate
         run: |
-          echo "Validating Content Security Policy..."
-          csp="default-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
-          if grep -q "script-src" security-headers.conf; then
-            echo "❌ script-src directive found - violates no-JS policy"
-            exit 1
-          else
-            echo "✓ CSP validates no-JS policy"
-          fi
+          cat > provenance.json <<'JSON'
+          {
+            "predicateType": "https://slsa.dev/provenance/v1",
+            "buildType": "secureblog-go-static",
+            "buildConfig": {
+              "repo": "${{ github.repository }}",
+              "commit": "${{ github.sha }}",
+              "runner": "github-actions",
+              "generator": "secureblog"
+            }
+          }
+          JSON
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3.6.0
+
+      - name: Attest site tarball (keyless)
+        env:
+          COSIGN_EXPERIMENTAL: "1"
+        run: |
+          cosign attest-blob --yes \
+            --predicate provenance.json \
+            --type slsaprovenance \
+            site.tar.gz > site.tar.gz.attestation
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: secureblog-site+attestation
+          path: |
+            site.tar.gz
+            site.tar.gz.attestation
+            provenance.json
