@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="X-Content-Type-Options" content="nosniff">
+    <meta http-equiv="X-Frame-Options" content="DENY">
+    <meta http-equiv="X-XSS-Protection" content="1; mode=block">
+    <meta name="referrer" content="no-referrer">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'self' 'nonce-{{.CSPNonce}}'; img-src 'self' data:; form-action 'none'; frame-ancestors 'none'; base-uri 'none'; upgrade-insecure-requests">
+    <title>{{.Title}} - Secure Blog</title>
+    <style nonce="{{.CSPNonce}}">
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            line-height: 1.6;
+            color: #e0e0e0;
+            background: #0a0a0a;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        h1, h2, h3 {
+            margin: 1em 0 0.5em;
+            color: #00ff41;
+        }
+        h1 {
+            border-bottom: 2px solid #00ff41;
+            padding-bottom: 10px;
+        }
+        a {
+            color: #00ff41;
+            text-decoration: none;
+        }
+        a:hover {
+            text-decoration: underline;
+        }
+        .post {
+            margin: 2em 0;
+            padding: 1.5em;
+            background: #1a1a1a;
+            border: 1px solid #333;
+            border-radius: 4px;
+        }
+        .post-meta {
+            color: #888;
+            font-size: 0.9em;
+            margin: 0.5em 0;
+        }
+        .integrity {
+            font-family: monospace;
+            font-size: 0.8em;
+            color: #666;
+            word-break: break-all;
+        }
+        pre {
+            background: #1a1a1a;
+            border: 1px solid #333;
+            padding: 1em;
+            overflow-x: auto;
+            margin: 1em 0;
+        }
+        code {
+            background: #1a1a1a;
+            padding: 2px 4px;
+            border-radius: 2px;
+        }
+        nav {
+            margin: 2em 0;
+            padding: 1em;
+            border-top: 1px solid #333;
+            border-bottom: 1px solid #333;
+        }
+        nav a {
+            margin-right: 1em;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>Secure Blog</h1>
+        <nav>
+            <a href="/">Home</a>
+            <a href="/feed.xml">RSS</a>
+        </nav>
+    </header>
+    <main>
+        {{.Content}}
+    </main>
+    <footer>
+        <p class="integrity">Page Hash: {{.Integrity}}</p>
+        <p>Built with zero JavaScript • No tracking • No cookies</p>
+    </footer>
+</body>
+</html>

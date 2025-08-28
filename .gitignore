@@ -1,0 +1,56 @@
+# Build output
+build/
+dist/
+*.tar.gz
+*.tar.gz.sha256
+*.tar.gz.asc
+
+# Binaries
+secureblog
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Test files
+*.test
+*.out
+coverage.txt
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Go
+vendor/
+go.sum
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.bak
+*.backup
+
+# Logs
+*.log
+logs/
+
+# Environment
+.env
+.env.local
+
+# Deployment
+deploy/
+local_deploy/
+
+# Security
+*.key
+*.pem
+*.crt
+credentials.txt
+secrets/

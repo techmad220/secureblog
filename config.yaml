@@ -1,0 +1,52 @@
+# SecureBlog Configuration
+
+site:
+  title: "Secure Blog"
+  url: "https://yourdomain.com"
+  description: "A security-focused blog"
+  author: "Security Professional"
+  
+build:
+  content_dir: "content"
+  output_dir: "build"
+  template_dir: "templates"
+  static_dir: "static"
+  
+security:
+  enable_csp: true
+  enable_integrity: true
+  enable_hsts: true
+  no_javascript: true
+  no_cookies: true
+  no_tracking: true
+  
+plugins:
+  markdown:
+    enabled: true
+    extensions: []
+    
+  csp-security:
+    enabled: true
+    strict: true
+    
+  integrity:
+    enabled: true
+    algorithm: "sha256"
+    
+  rss:
+    enabled: true
+    limit: 20
+    full_content: false
+    
+  sitemap:
+    enabled: true
+    changefreq: "weekly"
+    
+output:
+  minify: false
+  compression: true
+  
+deployment:
+  method: "static"  # static, s3, netlify, vercel
+  verify_integrity: true
+  sign_builds: true

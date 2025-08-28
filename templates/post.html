@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'self' 'nonce-{{.CSPNonce}}'; img-src 'self' data:; form-action 'none'; frame-ancestors 'none'; base-uri 'none'">
+    <title>{{.Post.Title}} - Secure Blog</title>
+    <style nonce="{{.CSPNonce}}">
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            line-height: 1.6;
+            color: #e0e0e0;
+            background: #0a0a0a;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        h1 {
+            color: #00ff41;
+            border-bottom: 2px solid #00ff41;
+            padding-bottom: 10px;
+            margin-bottom: 1em;
+        }
+        h2, h3, h4 {
+            color: #00ff41;
+            margin: 1.5em 0 0.5em;
+        }
+        .post-meta {
+            color: #888;
+            font-size: 0.9em;
+            margin: 1em 0;
+        }
+        .content {
+            background: #1a1a1a;
+            border: 1px solid #333;
+            border-radius: 4px;
+            padding: 2em;
+            margin: 2em 0;
+        }
+        .content p {
+            margin: 1em 0;
+        }
+        .content pre {
+            background: #0a0a0a;
+            border: 1px solid #444;
+            padding: 1em;
+            overflow-x: auto;
+            margin: 1em 0;
+        }
+        .content code {
+            background: #0a0a0a;
+            padding: 2px 4px;
+            border-radius: 2px;
+            color: #00ff41;
+        }
+        a {
+            color: #00ff41;
+            text-decoration: none;
+        }
+        a:hover {
+            text-decoration: underline;
+        }
+        nav {
+            margin: 2em 0;
+            padding: 1em 0;
+            border-bottom: 1px solid #333;
+        }
+        footer {
+            margin-top: 3em;
+            padding-top: 1em;
+            border-top: 1px solid #333;
+            color: #666;
+            font-size: 0.9em;
+        }
+        .integrity {
+            font-family: monospace;
+            font-size: 0.8em;
+            color: #555;
+            word-break: break-all;
+        }
+    </style>
+</head>
+<body>
+    <nav>
+        <a href="/">← Back to Home</a>
+    </nav>
+    
+    <article>
+        <h1>{{.Post.Title}}</h1>
+        <div class="post-meta">
+            <time>{{.Post.Date.Format "January 2, 2006"}}</time>
+        </div>
+        
+        <div class="content">
+            {{.Post.Content}}
+        </div>
+    </article>
+    
+    <footer>
+        <p class="integrity">Content Hash: {{.Post.ContentHash}}</p>
+        <p>Zero JavaScript • No tracking • No cookies</p>
+        <p><a href="/">Home</a> • <a href="/feed.xml">RSS</a></p>
+    </footer>
+</body>
+</html>
