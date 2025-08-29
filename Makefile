@@ -49,6 +49,15 @@ headers:
 	@echo "----------------------------------------"
 	@cat build/_headers 2>/dev/null || echo "Run 'make build' first"
 
+# Verify a downloaded release archive
+verify-release:
+ifndef DIST
+	@echo "Error: DIST parameter required"
+	@echo "Usage: make verify-release DIST=/path/to/dist.tar.gz"
+	@exit 1
+endif
+	@bash scripts/release-verify.sh "$(DIST)"
+
 # Initialize new blog
 init:
 	@echo "🎯 Initializing secure blog..."
