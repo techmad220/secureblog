@@ -296,6 +296,17 @@ cosign verify-blob \
   dist-v0.1.0.tar.gz
 ```
 
+### Verify a Downloaded Release (offline/local)
+
+```bash
+# Download a release asset (dist.tar.gz) from GitHub Releases, then:
+bash scripts/release-verify.sh /path/to/dist.tar.gz
+```
+
+Checks `.integrity.manifest` inside the archive and verifies SHA-256 for every file.
+
+If `cosign` is installed, also verifies SPDX + SLSA attestations (keyless, GitHub OIDC).
+
 ## ✅ Security Status - ALL GAPS CLOSED
 
 | Attack Surface | Protection | Implementation | Status |
