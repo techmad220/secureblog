@@ -1,0 +1,92 @@
+{
+  "description": "SecureBlog CDN Rate Limiting Rules",
+  "rules": [
+    {
+      "name": "Global Rate Limit",
+      "description": "Prevent abuse from single IP",
+      "expression": "true",
+      "action": "challenge",
+      "rateLimit": {
+        "threshold": 100,
+        "period": 60,
+        "characteristics": ["ip.src"]
+      }
+    },
+    {
+      "name": "Aggressive Bot Protection",
+      "description": "Block suspicious user agents",
+      "expression": "(http.user_agent contains \"bot\" and not http.user_agent contains \"Googlebot\") or http.user_agent eq \"\"",
+      "action": "block",
+      "rateLimit": {
+        "threshold": 10,
+        "period": 60,
+        "characteristics": ["ip.src", "http.user_agent"]
+      }
+    },
+    {
+      "name": "Path-Based Limiting",
+      "description": "Stricter limits on non-content paths",
+      "expression": "not (http.request.uri.path matches \"^/(posts|about|contact)\")",
+      "action": "challenge",
+      "rateLimit": {
+        "threshold": 20,
+        "period": 60,
+        "characteristics": ["ip.src", "http.request.uri.path"]
+      }
+    },
+    {
+      "name": "Country-Based Surge Protection",
+      "description": "Prevent country-level DDoS",
+      "expression": "true",
+      "action": "managed_challenge",
+      "rateLimit": {
+        "threshold": 10000,
+        "period": 60,
+        "characteristics": ["ip.geoip.country"]
+      }
+    },
+    {
+      "name": "ASN-Based Protection",
+      "description": "Limit requests from single ASN",
+      "expression": "true",
+      "action": "js_challenge",
+      "rateLimit": {
+        "threshold": 5000,
+        "period": 60,
+        "characteristics": ["ip.geoip.asnum"]
+      }
+    }
+  ],
+  "waf_rules": [
+    {
+      "name": "OWASP Core Rule Set",
+      "enabled": true,
+      "sensitivity": "high"
+    },
+    {
+      "name": "Known Vulnerability Scanner",
+      "expression": "http.user_agent contains \"nikto\" or http.user_agent contains \"sqlmap\" or http.user_agent contains \"nmap\"",
+      "action": "block"
+    }
+  ],
+  "ddos_protection": {
+    "sensitivity": "high",
+    "action": "challenge",
+    "threshold": {
+      "requests_per_second": 50,
+      "concurrent_connections": 20
+    }
+  },
+  "transform_rules": [
+    {
+      "name": "Remove Tracking Parameters",
+      "description": "Strip UTM and tracking params",
+      "expression": "true",
+      "action": {
+        "type": "rewrite_uri",
+        "regex": "([?&])(utm_[^&]*|fbclid=[^&]*|gclid=[^&]*|mc_[^&]*)",
+        "replacement": ""
+      }
+    }
+  ]
+}
