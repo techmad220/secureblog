@@ -1,0 +1,8 @@
+{
+  "tag_name": "v1.0.0",
+  "target_commitish": "main",
+  "name": "SecureBlog v1.0.0 - Production Ready",
+  "body": "## 🎉 First Stable Release\n\n### ✅ Complete Security Implementation\n- Zero JavaScript architecture\n- Plugin-based extensibility\n- Comprehensive test suite\n- Full documentation\n- Beginner-friendly setup\n\n### 📦 Features\n- **Ultra-secure**: No JS, no cookies, no tracking\n- **Fast**: Pure static HTML\n- **Extensible**: Plugin architecture\n- **Tested**: Unit tests + security audits\n- **Documented**: Complete guides for all skill levels\n\n### 🔒 Security\n- Content Security Policy enforcement\n- SHA-256 integrity hashing\n- Signed manifests\n- Supply chain security\n- Automated security regression testing\n\n### 📚 Documentation\n- [Beginner Guide](docs/BEGINNER-GUIDE.md)\n- [Plugin Development](docs/PLUGIN-GUIDE.md)\n- [Security Audit](docs/SECURITY-AUDIT.md)\n- [Deployment Guide](DEPLOY.md)\n\n### 🚀 Quick Start\n```bash\ngit clone https://github.com/techmad220/secureblog.git\ncd secureblog\ngo run cmd/main_v2.go\n```\n\n### 🙏 Thanks\nThanks to the community for the thorough review and feedback!",
+  "draft": false,
+  "prerelease": false
+}
