@@ -14,10 +14,13 @@ A maximum-security static blog generator with **plugin-based architecture**, zer
 ### Core Security Features
 - **Zero JavaScript Policy** - ENFORCED by `security-regression-guard.sh` (stricter than nojs_guard)
 - **Cryptographic Integrity** - Every file SHA-256 hashed and Ed25519 signed
+- **Subresource Integrity (SRI)** - Automatic SHA-384 hashes for any external resources
 - **Plugin Sandboxing** - Network denied, build-time only, output filtered
 - **SLSA Provenance** - Keyless Cosign attestation on every build
 - **Supply Chain Security** - govulncheck + staticcheck + gitleaks in CI
 - **CDN-Only Architecture** - No origin server, no SSH, no kernel exposure
+- **CDN Rate Limiting** - DDoS protection with per-IP, ASN, and country limits
+- **Privacy Analytics** - Edge-only metrics, zero client-side tracking (see `docs/PRIVACY_ANALYTICS.md`)
 - **OIDC Everywhere** - Zero long-lived credentials in entire system
 
 ### Defense Layers
@@ -165,6 +168,7 @@ All security features are implemented as plugins for easy customization:
 
 ### Available Plugins
 - **Integrity Plugin** (`plugins/integrity/`) - Content hash verification
+- **SRI Plugin** (`plugins/sri/`) - Subresource Integrity for external resources
 - **Analytics Plugin** (`plugins/analytics/`) - Privacy-preserving metrics
 - **Security Audit** (`plugins/audit/`) - Automated security checks
 - **Deployment** (`plugins/deploy/`) - OIDC and secure deployment
@@ -220,6 +224,7 @@ make -f Makefile.security analytics
 # Cloudflare deployment
 export CLOUDFLARE_ACCOUNT_ID=xxx
 export CF_ZONE_ID=xxx
+export CF_API_TOKEN=xxx  # For rate limiting deployment
 
 # Mirror deployment (optional)
 export MIRROR_HOST=backup.example.com
@@ -227,6 +232,17 @@ export MIRROR_HOST=backup.example.com
 # Analytics retention
 export RETENTION_DAYS=30
 ```
+
+### CDN Rate Limiting
+Deploy comprehensive rate limits to Cloudflare:
+```bash
+bash cloudflare/deploy-rate-limits.sh
+```
+Configuration in `cloudflare/rate-limiting.json` includes:
+- 100 requests/minute per IP
+- Bot protection and scanner blocking  
+- Country and ASN-level DDoS protection
+- OWASP WAF rules
 
 ### Security Customization
 Edit `plugins/*/config.json` to customize:
