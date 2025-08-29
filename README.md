@@ -33,23 +33,34 @@ A maximum-security static blog generator with **plugin-based architecture**, zer
 
 ## Quick Start
 
-### Easy Mode (Automated) 🚀
+### 🎯 Three Ways to Use SecureBlog
 
+#### 1. Interactive Mode (Easiest - Like WordPress!)
 ```bash
-# Clone and setup
-git clone https://github.com/techmad220/secureblog
-cd secureblog
+# One-time setup
+./secureblog-easy.sh setup
 
-# Create your first post
+# Then just run for interactive menu
+./secureblog-easy.sh
+# Shows menu: Write Post, Add Images, Publish, etc.
+```
+
+#### 2. Web UI Mode (Visual Interface)
+```bash
+# Build and run the UI
+go build -o secureblog-ui cmd/secureblog-ui/main.go
+./secureblog-ui
+
+# Open browser to http://localhost:8080
+# WordPress-style interface with maximum security
+```
+
+#### 3. CLI Mode (Power Users)
+```bash
+# Quick commands
 ./blog new 'My First Secure Post'
-
-# Add images
 ./blog image photo.jpg
-
-# Preview locally
 ./blog preview
-
-# Deploy (auto-runs all security checks)
 ./blog deploy
 ```
 
