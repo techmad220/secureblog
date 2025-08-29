@@ -235,6 +235,67 @@ Edit `plugins/*/config.json` to customize:
 - Analytics privacy levels
 - Deployment targets
 
+## 📋 Compliance Proof
+
+### What CI Enforces (Non-Negotiable Gates)
+
+Every push to `main` and every PR must pass these automated security gates:
+
+#### **Build Security**
+- ✅ **Dependency vulnerabilities** - `govulncheck` blocks builds with known CVEs
+- ✅ **Code quality** - `staticcheck` enforces Go best practices
+- ✅ **Secret scanning** - `gitleaks` prevents credential leaks
+- ✅ **Reproducible builds** - `-trimpath -buildvcs=false` for deterministic output
+
+#### **Content Security**
+- ✅ **NO JavaScript** - Build fails if ANY `.js` files exist in `dist/`
+- ✅ **NO script tags** - Build fails on `<script>` tags in HTML
+- ✅ **NO inline handlers** - Build fails on `onclick`, `onload`, etc.
+- ✅ **NO javascript: URIs** - Build fails on `javascript:` or `data:` URLs
+- ✅ **NO WebAssembly** - Build fails if `.wasm` files detected
+- ✅ **NO service workers** - Build fails on `navigator.serviceWorker`
+- ✅ **NO ES6 modules** - Build fails on `import`/`export` statements
+
+#### **Integrity Verification**
+- ✅ **SHA-256 manifest** - All files hashed in `.integrity.manifest`
+- ✅ **Manifest verification** - `sha256sum --check` on every build
+- ✅ **E2E link checking** - All `href`/`src` validated (no broken links)
+- ✅ **Orphan detection** - Identifies unreferenced files
+
+#### **Release Security**
+- ✅ **Signed artifacts** - Cosign signatures with OIDC (keyless)
+- ✅ **SBOM generation** - Full dependency tree in SPDX format
+- ✅ **Provenance attestation** - SLSA Build Level 3 compliance
+- ✅ **Versioned releases** - Tagged with `dist/` archive + signatures
+
+### Audit Trail
+
+All security checks are logged in GitHub Actions. View the latest run:
+- [Security Gates](https://github.com/techmad220/secureblog/actions/workflows/verify.yml)
+- [Supply Chain](https://github.com/techmad220/secureblog/actions/workflows/secure-publish.yml)
+- [Releases](https://github.com/techmad220/secureblog/releases)
+
+### Verification Commands
+
+```bash
+# Clone and verify locally
+git clone https://github.com/techmad220/secureblog
+cd secureblog
+
+# Run the same checks CI runs
+bash .scripts/security-regression-guard.sh dist
+bash scripts/integrity-verify.sh dist
+bash scripts/e2e-link-check.sh dist
+
+# Verify a release
+cosign verify-blob \
+  --certificate dist-v0.1.0.tar.gz.crt \
+  --signature dist-v0.1.0.tar.gz.sig \
+  --certificate-identity-regexp "^https://github.com/techmad220/secureblog" \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  dist-v0.1.0.tar.gz
+```
+
 ## ✅ Security Status - ALL GAPS CLOSED
 
 | Attack Surface | Protection | Implementation | Status |

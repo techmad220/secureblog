@@ -46,3 +46,6 @@ jobs:
 
       - name: Verify integrity manifest
         run: bash scripts/integrity-verify.sh dist
+
+      - name: E2E link and asset check
+        run: bash scripts/e2e-link-check.sh dist

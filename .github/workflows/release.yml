@@ -1,0 +1,122 @@
+name: Release with Attestations
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+  packages: write
+  id-token: write
+  attestations: write
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.22.x"
+          cache: true
+
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@v3
+
+      - name: Install Syft (SBOM generator)
+        uses: anchore/sbom-action/download-syft@v0
+
+      - name: Build deterministically
+        run: |
+          set -Eeuo pipefail
+          export CGO_ENABLED=0
+          export GOFLAGS="-trimpath -mod=readonly -buildvcs=false"
+          go build -ldflags="-s -w -X main.Version=${{ github.ref_name }}" -o bin/secureblog ./cmd/...
+
+      - name: Generate site
+        run: |
+          bash ./build-sandbox.sh
+          bash scripts/manifest-generate.sh dist
+
+      - name: Create dist archive
+        run: |
+          tar czf dist-${{ github.ref_name }}.tar.gz dist/
+          sha256sum dist-${{ github.ref_name }}.tar.gz > dist-${{ github.ref_name }}.tar.gz.sha256
+
+      - name: Generate SBOM
+        run: |
+          syft . -o spdx-json > secureblog-${{ github.ref_name }}.sbom.json
+          sha256sum secureblog-${{ github.ref_name }}.sbom.json > secureblog-${{ github.ref_name }}.sbom.json.sha256
+
+      - name: Sign artifacts with Cosign
+        run: |
+          cosign sign-blob --yes \
+            --oidc-issuer https://token.actions.githubusercontent.com \
+            --output-signature dist-${{ github.ref_name }}.tar.gz.sig \
+            --output-certificate dist-${{ github.ref_name }}.tar.gz.crt \
+            dist-${{ github.ref_name }}.tar.gz
+          
+          cosign sign-blob --yes \
+            --oidc-issuer https://token.actions.githubusercontent.com \
+            --output-signature secureblog-${{ github.ref_name }}.sbom.json.sig \
+            --output-certificate secureblog-${{ github.ref_name }}.sbom.json.crt \
+            secureblog-${{ github.ref_name }}.sbom.json
+
+      - name: Create attestation
+        uses: actions/attest-build-provenance@v1
+        with:
+          subject-path: |
+            dist-${{ github.ref_name }}.tar.gz
+            secureblog-${{ github.ref_name }}.sbom.json
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          name: SecureBlog ${{ github.ref_name }}
+          body: |
+            ## SecureBlog ${{ github.ref_name }}
+            
+            ### 🔒 Security-First Static Site Generator
+            
+            **Zero JavaScript • Deterministic Builds • Signed Artifacts**
+            
+            ### 📦 Release Assets
+            - `dist-*.tar.gz` - Pre-built static site
+            - `*.sbom.json` - Software Bill of Materials
+            - `*.sig` - Cosign signatures
+            - `*.crt` - Signing certificates
+            - `*.sha256` - Checksums
+            
+            ### ✅ Verification
+            ```bash
+            # Verify signatures
+            cosign verify-blob \
+              --certificate dist-${{ github.ref_name }}.tar.gz.crt \
+              --signature dist-${{ github.ref_name }}.tar.gz.sig \
+              --certificate-identity-regexp "^https://github.com/techmad220/secureblog" \
+              --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+              dist-${{ github.ref_name }}.tar.gz
+            
+            # Verify checksums
+            sha256sum -c dist-${{ github.ref_name }}.tar.gz.sha256
+            ```
+            
+            ### 🚀 Deploy
+            Extract and deploy to any static host (Cloudflare Pages, Netlify, etc.)
+            
+            ---
+            See [Compliance Proof](https://github.com/techmad220/secureblog#compliance-proof) for security guarantees.
+          files: |
+            dist-*.tar.gz*
+            secureblog-*.sbom.json*
+            *.sig
+            *.crt
+            *.sha256
+          fail_on_unmatched_files: true
+          generate_release_notes: true
