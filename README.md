@@ -33,11 +33,29 @@ A maximum-security static blog generator with **plugin-based architecture**, zer
 
 ## Quick Start
 
+### Easy Mode (Automated) 🚀
+
 ```bash
 # Clone and setup
 git clone https://github.com/techmad220/secureblog
 cd secureblog
 
+# Create your first post
+./blog new 'My First Secure Post'
+
+# Add images
+./blog image photo.jpg
+
+# Preview locally
+./blog preview
+
+# Deploy (auto-runs all security checks)
+./blog deploy
+```
+
+### Manual Mode (Full Control)
+
+```bash
 # Build with sandboxed plugins (no network access)
 ./build-sandbox.sh
 
@@ -146,14 +164,43 @@ secureblog/
 - `make -f Makefile.security clean` - Clean artifacts
 - `make -f Makefile.security sbom` - Generate SBOM
 
-## Writing Posts
+## ✍️ Writing Posts
+
+### Automated Workflow (Recommended)
+
+```bash
+# 1. Create new post with template
+./blog new 'My Awesome Post'
+
+# 2. Edit the generated markdown file
+$EDITOR content/posts/2024-XX-XX-my-awesome-post.md
+
+# 3. Add images securely
+./blog image photo.jpg featured.jpg
+
+# 4. Preview locally
+./blog preview  # Opens http://localhost:8080
+
+# 5. Deploy with all security checks
+./blog deploy   # Auto-runs security gates & deploys
+```
+
+### Manual Workflow
 
 Create Markdown files in `content/posts/`:
 
 ```markdown
+---
+title: "Post Title"
+date: 2024-01-01
+tags: [security, blog]
+---
+
 # Post Title
 
 Your content here...
+
+![Image](/images/photo.jpg)
 ```
 
 The generator will automatically:
@@ -161,6 +208,8 @@ The generator will automatically:
 - Generate content hashes
 - Add security headers
 - Create RSS feed
+- Validate all links
+- Block any JavaScript
 
 ## 🔐 Plugin System
 

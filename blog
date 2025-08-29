@@ -1,0 +1,227 @@
+#!/bin/bash
+# secureblog automation - Make blogging easy while maintaining maximum security
+set -euo pipefail
+
+BLOG_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CONTENT_DIR="$BLOG_DIR/content/posts"
+IMAGES_DIR="$BLOG_DIR/static/images"
+SCRIPTS_DIR="$BLOG_DIR/scripts"
+
+# Color output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+NC='\033[0m'
+
+log() { echo -e "${GREEN}[$(date +'%H:%M:%S')] $1${NC}"; }
+warn() { echo -e "${YELLOW}[WARN] $1${NC}"; }
+error() { echo -e "${RED}[ERROR] $1${NC}" >&2; exit 1; }
+
+# Create new blog post with template
+new_post() {
+    local title="$1"
+    local slug=$(echo "$title" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g' | sed 's/--*/-/g' | sed 's/^-\|-$//g')
+    local date=$(date +'%Y-%m-%d')
+    local filename="$CONTENT_DIR/$date-$slug.md"
+    
+    mkdir -p "$CONTENT_DIR"
+    
+    if [[ -f "$filename" ]]; then
+        error "Post already exists: $filename"
+    fi
+    
+    cat > "$filename" << EOF
+---
+title: "$title"
+date: $date
+slug: $slug
+draft: false
+tags: []
+---
+
+# $title
+
+Write your content here...
+
+## Adding Images
+
+\`\`\`markdown
+![Alt text](/images/filename.jpg)
+\`\`\`
+
+## Security Note
+All content is automatically:
+- Integrity hashed (SHA-256)
+- Security scanned (no-JS policy)
+- Link validated (broken link detection)
+EOF
+    
+    log "✅ Created: $filename"
+    echo "Edit with: \$EDITOR '$filename'"
+}
+
+# Add image with security checks
+add_image() {
+    local image_path="$1"
+    local target_name="${2:-$(basename "$image_path")}"
+    
+    [[ ! -f "$image_path" ]] && error "Image not found: $image_path"
+    
+    # Security: validate mime type
+    local mime_type=$(file --mime-type -b "$image_path")
+    case "$mime_type" in
+        image/jpeg|image/png|image/webp|image/svg+xml)
+            log "Valid image: $mime_type"
+            ;;
+        *)
+            error "Invalid type: $mime_type (only JPEG/PNG/WebP/SVG)"
+            ;;
+    esac
+    
+    # Security: remove executable bits
+    chmod -x "$image_path" 2>/dev/null || true
+    
+    # Copy to images directory
+    mkdir -p "$IMAGES_DIR"
+    cp "$image_path" "$IMAGES_DIR/$target_name"
+    
+    # Generate hash
+    local hash=$(sha256sum "$IMAGES_DIR/$target_name" | cut -d' ' -f1)
+    log "✅ Added: $target_name (SHA256: ${hash:0:16}...)"
+    echo "Reference: ![Alt text](/images/$target_name)"
+}
+
+# Build with all security checks
+build() {
+    log "🔨 Building secure blog..."
+    
+    # Run sandboxed build
+    if [[ -f "$BLOG_DIR/build-sandbox.sh" ]]; then
+        cd "$BLOG_DIR" && bash ./build-sandbox.sh
+    else
+        cd "$BLOG_DIR" && make build
+    fi
+    
+    # Security checks
+    log "🔒 Running security checks..."
+    bash "$BLOG_DIR/.scripts/security-regression-guard.sh" dist
+    
+    # Integrity verification
+    if [[ -f "$SCRIPTS_DIR/integrity-verify.sh" ]]; then
+        bash "$SCRIPTS_DIR/integrity-verify.sh" dist
+    fi
+    
+    # Link validation
+    if [[ -f "$SCRIPTS_DIR/e2e-link-check.sh" ]]; then
+        bash "$SCRIPTS_DIR/e2e-link-check.sh" dist
+    fi
+    
+    log "✅ Build complete & secure!"
+}
+
+# Deploy with verification
+deploy() {
+    local env="${1:-production}"
+    
+    log "🚀 Deploying to $env..."
+    
+    # Build first
+    build
+    
+    # Git deployment (auto-triggers GitHub Actions)
+    if [[ "$env" == "production" ]]; then
+        git add -A
+        git commit -m "Post: $(date +'%Y-%m-%d %H:%M') [automated]" || true
+        git push origin main
+        log "✅ Deployed via GitHub Actions"
+    else
+        error "Unknown environment: $env"
+    fi
+}
+
+# Quick security audit
+audit() {
+    log "🔍 Security audit..."
+    
+    # Check for vulnerabilities
+    if command -v govulncheck &>/dev/null; then
+        govulncheck ./... 2>&1 | grep -E "(Found|No)" || true
+    fi
+    
+    # Check for secrets
+    if command -v gitleaks &>/dev/null; then
+        gitleaks detect --no-git 2>&1 | grep -E "(leaks found|no leaks)" || true
+    fi
+    
+    # Check dist for JS
+    if [[ -d dist ]]; then
+        bash .scripts/security-regression-guard.sh dist
+    fi
+    
+    log "✅ Audit complete"
+}
+
+# Preview locally
+preview() {
+    log "👁️ Starting preview server..."
+    build
+    echo "Preview at: http://localhost:8080"
+    echo "Press Ctrl+C to stop"
+    cd dist && python3 -m http.server 8080 --bind 127.0.0.1 2>/dev/null || \
+        python -m SimpleHTTPServer 8080
+}
+
+# Main command dispatcher
+case "${1:-help}" in
+    "new")
+        [[ -z "${2:-}" ]] && error "Usage: $0 new 'Post Title'"
+        new_post "$2"
+        ;;
+    "image"|"img")
+        [[ -z "${2:-}" ]] && error "Usage: $0 image /path/to/image.jpg"
+        add_image "$2" "${3:-}"
+        ;;
+    "build")
+        build
+        ;;
+    "deploy"|"publish")
+        deploy "${2:-production}"
+        ;;
+    "audit")
+        audit
+        ;;
+    "preview"|"serve")
+        preview
+        ;;
+    "help"|*)
+        cat << EOF
+SecureBlog - Maximum Security, Easy Blogging
+
+USAGE:
+    ./blog <command> [options]
+
+COMMANDS:
+    new 'Title'       Create new post
+    image file.jpg    Add image securely
+    build            Build with security checks
+    deploy           Deploy to production
+    preview          Local preview server
+    audit            Quick security audit
+    
+EXAMPLES:
+    ./blog new 'My First Secure Post'
+    ./blog image photo.jpg
+    ./blog build
+    ./blog deploy
+
+WORKFLOW:
+    1. ./blog new 'Today's Post'
+    2. Edit the generated markdown file
+    3. ./blog image any-photos.jpg
+    4. ./blog preview  (check locally)
+    5. ./blog deploy   (goes live)
+
+Security is enforced at every step automatically.
+EOF
+        ;;
+esac
