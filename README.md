@@ -304,8 +304,7 @@ Edit `plugins/*/config.json` to customize:
 
 See [WORDPRESS_MIGRATION.md](docs/WORDPRESS_MIGRATION.md) for detailed migration guide.
 
-**Quick Comparison:**
-- **Security**: WordPress (hackable) → SecureBlog (unhackable)
+**Quick Comparison:** 
 - **Speed**: 3-8 seconds → 0.5-1.5 seconds
 - **Cost**: $400-1,600/year → $0-60/year
 - **Maintenance**: Constant updates → Zero maintenance
