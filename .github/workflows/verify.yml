@@ -1,0 +1,48 @@
+name: SecureBlog – Verify (No-JS & Integrity)
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.22.x"
+          cache: true
+
+      - name: Build generator deterministically
+        run: |
+          set -Eeuo pipefail
+          export CGO_ENABLED=0
+          export GOFLAGS="-trimpath -mod=readonly -buildvcs=false"
+          go build -ldflags="-s -w" -o bin/secureblog ./cmd/...
+
+      - name: Build site (sandboxed)
+        run: |
+          bash ./build-sandbox.sh
+          test -d dist && [ -n "$(ls -A dist)" ]
+
+      - name: No-JS regression guard
+        run: bash .scripts/security-regression-guard.sh dist
+
+      - name: Ensure manifest exists (generate if missing)
+        run: |
+          if [ ! -f dist/.integrity.manifest ]; then
+            bash scripts/manifest-generate.sh dist
+          fi
+
+      - name: Verify integrity manifest
+        run: bash scripts/integrity-verify.sh dist
