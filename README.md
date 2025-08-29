@@ -6,7 +6,7 @@
 [![SLSA Level 3](https://img.shields.io/badge/SLSA-Level%203-green?style=for-the-badge)](https://slsa.dev)
 [![CDN Only](https://img.shields.io/badge/Hosting-CDN%20Only-orange?style=for-the-badge)](https://github.com/techmad220/secureblog)
 [![No Database](https://img.shields.io/badge/Database-NONE-success?style=for-the-badge)](https://github.com/techmad220/secureblog)
-[![Unhackable](https://img.shields.io/badge/Status-UNHACKABLE-red?style=for-the-badge)](https://github.com/techmad220/secureblog)
+[![Static Only](https://img.shields.io/badge/Architecture-STATIC%20ONLY-green?style=for-the-badge)](https://github.com/techmad220/secureblog)
 
 [![CI/CD](https://img.shields.io/github/actions/workflow/status/techmad220/secureblog/verify.yml?label=Security%20Gates&style=flat-square)](https://github.com/techmad220/secureblog/actions)
 [![License](https://img.shields.io/badge/License-MIT-yellow?style=flat-square)](LICENSE)
@@ -23,7 +23,7 @@ A maximum-security static blog generator with **plugin-based architecture**, zer
 
 | WordPress | SecureBlog |
 |-----------|------------|
-| ![Vulnerable](https://img.shields.io/badge/Security-VULNERABLE-red?style=flat-square) | ![Unhackable](https://img.shields.io/badge/Security-UNHACKABLE-brightgreen?style=flat-square) |
+| ![Vulnerable](https://img.shields.io/badge/Security-VULNERABLE-red?style=flat-square) | ![Hardened](https://img.shields.io/badge/Security-HARDENED-brightgreen?style=flat-square) |
 | ![Slow](https://img.shields.io/badge/Speed-3--8s-orange?style=flat-square) | ![Fast](https://img.shields.io/badge/Speed-0.5s-brightgreen?style=flat-square) |
 | ![Expensive](https://img.shields.io/badge/Cost-%241500%2Fyear-red?style=flat-square) | ![Free](https://img.shields.io/badge/Cost-FREE-brightgreen?style=flat-square) |
 | ![Complex](https://img.shields.io/badge/Maintenance-CONSTANT-orange?style=flat-square) | ![Simple](https://img.shields.io/badge/Maintenance-ZERO-brightgreen?style=flat-square) |

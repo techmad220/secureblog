@@ -84,7 +84,7 @@ go run cmd/main_v2.go
 
 ## Features
 
-✅ **Zero JavaScript** - Unhackable by design
+✅ **Zero JavaScript** - Maximum security by design
 ✅ **Privacy-First Analytics** - Cloudflare edge metrics
 ✅ **Plugin Architecture** - Extend with custom plugins
 ✅ **Transparency Dashboard** - Public stats at `/stats.html`

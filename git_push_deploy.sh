@@ -39,7 +39,7 @@ git add -A
 git commit -m "🚀 SecureBlog - Ultra-secure static blog generator
 
 Features:
-- Zero JavaScript (unhackable)
+- Zero JavaScript (maximum security)
 - Plugin-based architecture
 - Privacy-first analytics (Cloudflare edge)
 - Automated transparency dashboard
