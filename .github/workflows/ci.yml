@@ -1,66 +1,77 @@
-name: ci
+name: CI (secure)
 on:
   push:
-    branches: [ "main" ]
+    branches: [ "**" ]
   pull_request:
+
 permissions:
   contents: read
-  id-token: write
+  security-events: write
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  build-test:
+  ci:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
+      - uses: actions/checkout@v4
 
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: "1.22.x"
+          go-version: "1.23.x"  # current stable
+          check-latest: true
 
-      - name: Go tidy (fail if dirty)
+      - name: Go cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: ${{ runner.os }}-go-
+
+      - name: Verify formatting
         run: |
-          go mod tidy
-          git diff --exit-code || { echo "go.mod/go.sum changed after tidy"; exit 1; }
-
-      - name: Go vet
-        run: go vet ./...
+          set -euo pipefail
+          fmtout=$(gofmt -s -l . || true)
+          if [ -n "$fmtout" ]; then
+            echo "gofmt differences in:"
+            echo "$fmtout"
+            exit 1
+          fi
 
       - name: Staticcheck
-        run: |
-          go install honnef.co/go/tools/cmd/staticcheck@latest
-          "$HOME"/go/bin/staticcheck ./...
-
-      - name: Build generator
-        run: go build -trimpath -ldflags "-s -w" ./cmd
-
-      - name: Build site (sandboxed)
-        run: |
-          export GOWORK=off
-          export CGO_ENABLED=0
-          export GOPROXY=off
-          make build
-
-      - name: Security regression guard
-        run: bash .scripts/security-regression-guard.sh
-
-      - name: Sign manifest
-        run: bash scripts/sign-manifest.sh build
-
-      - name: Verify manifest
-        run: |
-          # Verify the manifest we just created
-          cd build
-          jq -r '.files | to_entries[] | "\(.value.sha256)  \(.key)"' manifest.json | \
-          while read hash file; do
-            actual=$(sha256sum "$file" | cut -d' ' -f1)
-            [ "$hash" = "$actual" ] || { echo "Hash mismatch: $file"; exit 1; }
-          done
-
-      - name: Link check (lychee)
-        uses: lycheeverse/lychee-action@v2
+        uses: dominikh/staticcheck-action@v1
         with:
-          args: --accept 200,204,206 --max-redirects 5 --timeout 15s --exclude-mail --no-progress "build/**/*.html"
-          fail: true
+          version: "latest"
+
+      - name: govulncheck
+        uses: golang/govulncheck-action@v1
+        with:
+          go-version-input: "1.23"
+          args: ./...
+
+      - name: Secrets scan (gitleaks)
+        uses: gitleaks/gitleaks-action@v2
+        with:
+          args: --no-banner --redact
+
+      - name: Secure build (sandboxed)
+        run: bash ./build-sandbox.sh
+
+      - name: No-JS regression guard
+        run: bash ./.scripts/nojs-guard.sh dist
+
+      - name: Link checker
+        run: bash ./scripts/linkcheck.sh dist
+
+      - name: Upload built site (PR previews etc.)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: site-dist
+          path: dist

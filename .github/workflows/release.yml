@@ -1,63 +1,57 @@
-name: release
-
+name: Release
 on:
   push:
-    tags:
-      - 'v*.*.*'
+    tags: ["v*"]
 
 permissions:
   contents: write
+  attestations: write
   id-token: write
 
-jobs:
-  build-release:
-    runs-on: ubuntu-24.04
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+concurrency:
+  group: rel-${{ github.ref }}
+  cancel-in-progress: true
 
-      - name: Setup Go
-        uses: actions/setup-go@v5
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
         with:
-          go-version-file: go.mod
+          go-version: "1.23.x"
           check-latest: true
 
-      - name: Build (secure)
-        run: make -f Makefile.security build
+      - name: Secure build (sandboxed)
+        run: bash ./build-sandbox.sh
+
+      - name: No-JS regression guard
+        run: bash ./.scripts/nojs-guard.sh dist
+
+      - name: Link checker
+        run: bash ./scripts/linkcheck.sh dist
+
+      - name: Pack dist
+        run: |
+          tar -C dist -czf dist.tgz .
 
       - name: Generate SBOM (SPDX)
         uses: anchore/sbom-action@v0
         with:
-          path: .
-          output-file: sbom.spdx.json
-          format: spdx-json
+          path: ./dist
+          artifact-name: sbom.spdx.json
 
-      - name: Install Cosign
-        uses: sigstore/cosign-installer@v3.5.0
-
-      - name: Sign dist/ (keyless OIDC)
-        env:
-          COSIGN_EXPERIMENTAL: "1"
-        run: |
-          find dist -type f -print0 | xargs -0 -I{} cosign sign-blob --yes {} \
-            --output-signature {}.sig --output-certificate {}.pem
-
-      - name: Attest build provenance (SLSA-ish)
-        env:
-          COSIGN_EXPERIMENTAL: "1"
-        run: |
-          cosign attest --predicate <(jq -n \
-            --arg built "$(date -u +%FT%TZ)" \
-            --arg builder "github-actions" \
-            '{buildType:"https://slsa.dev/provenance/v1", buildStartedOn:$built, builder:$builder}') \
-            --type https://slsa.dev/provenance/v1 \
-            --yes dist
-
-      - name: Create Release
+      - name: Create GitHub release
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            dist/**
-            sbom.spdx.json
-            dist/**/*.sig
-            dist/**/*.pem
+            dist.tgz
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Attest build provenance (SLSA/in-toto)
+        uses: actions/attest-build-provenance@v1
+        with:
+          subject-path: "dist.tgz"

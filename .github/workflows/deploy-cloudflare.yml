@@ -1,0 +1,39 @@
+name: Deploy (Cloudflare Pages)
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  deployments: write
+  id-token: write
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.23.x"
+          check-latest: true
+
+      - name: Secure build (sandboxed)
+        run: bash ./build-sandbox.sh
+
+      - name: No-JS regression guard
+        run: bash ./.scripts/nojs-guard.sh dist
+
+      - name: Link checker
+        run: bash ./scripts/linkcheck.sh dist
+
+      - name: Deploy to Cloudflare Pages (wrangler)
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          command: pages deploy dist --project-name="${{ secrets.CF_PAGES_PROJECT }}"
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
