@@ -1,0 +1,35 @@
+name: link-check
+
+on:
+  pull_request:
+  push:
+    branches: [ main ]
+
+permissions:
+  contents: read
+
+jobs:
+  crawl:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          check-latest: true
+
+      - name: Build (secure)
+        run: make -f Makefile.security build
+
+      - name: Install lychee
+        run: |
+          curl -sSfL https://github.com/lycheeverse/lychee/releases/download/v0.15.1/lychee-$(uname -s | tr '[:upper:]' '[:lower:]')-$(uname -m).tar.gz \
+          | tar xz -C /usr/local/bin lychee
+
+      - name: Check links (dist/)
+        run: |
+          lychee --verbose --accept 200,204 --max-redirects 3 \
+                 --scheme https --scheme http \
+                 --exclude-mail --exclude-file .lycheeignore \
+                 --no-progress dist

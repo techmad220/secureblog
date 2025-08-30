@@ -1,0 +1,15 @@
+name: nojs-guard
+on:
+  pull_request:
+  push:
+    branches: [ main ]
+jobs:
+  guard:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - run: make -f Makefile.security build
+      - run: bash .scripts/security-regression-guard.sh dist

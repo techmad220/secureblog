@@ -1,122 +1,63 @@
-name: Release with Attestations
+name: release
 
 on:
   push:
     tags:
-      - 'v*'
+      - 'v*.*.*'
 
 permissions:
   contents: write
-  packages: write
   id-token: write
-  attestations: write
 
 jobs:
-  release:
+  build-release:
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
-      - name: Set up Go
+      - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: "1.22.x"
-          cache: true
+          go-version-file: go.mod
+          check-latest: true
+
+      - name: Build (secure)
+        run: make -f Makefile.security build
+
+      - name: Generate SBOM (SPDX)
+        uses: anchore/sbom-action@v0
+        with:
+          path: .
+          output-file: sbom.spdx.json
+          format: spdx-json
 
       - name: Install Cosign
-        uses: sigstore/cosign-installer@v3
+        uses: sigstore/cosign-installer@v3.5.0
 
-      - name: Install Syft (SBOM generator)
-        uses: anchore/sbom-action/download-syft@v0
-
-      - name: Build deterministically
+      - name: Sign dist/ (keyless OIDC)
+        env:
+          COSIGN_EXPERIMENTAL: "1"
         run: |
-          set -Eeuo pipefail
-          export CGO_ENABLED=0
-          export GOFLAGS="-trimpath -mod=readonly -buildvcs=false"
-          go build -ldflags="-s -w -X main.Version=${{ github.ref_name }}" -o bin/secureblog ./cmd/...
+          find dist -type f -print0 | xargs -0 -I{} cosign sign-blob --yes {} \
+            --output-signature {}.sig --output-certificate {}.pem
 
-      - name: Generate site
+      - name: Attest build provenance (SLSA-ish)
+        env:
+          COSIGN_EXPERIMENTAL: "1"
         run: |
-          bash ./build-sandbox.sh
-          bash scripts/manifest-generate.sh dist
+          cosign attest --predicate <(jq -n \
+            --arg built "$(date -u +%FT%TZ)" \
+            --arg builder "github-actions" \
+            '{buildType:"https://slsa.dev/provenance/v1", buildStartedOn:$built, builder:$builder}') \
+            --type https://slsa.dev/provenance/v1 \
+            --yes dist
 
-      - name: Create dist archive
-        run: |
-          tar czf dist-${{ github.ref_name }}.tar.gz dist/
-          sha256sum dist-${{ github.ref_name }}.tar.gz > dist-${{ github.ref_name }}.tar.gz.sha256
-
-      - name: Generate SBOM
-        run: |
-          syft . -o spdx-json > secureblog-${{ github.ref_name }}.sbom.json
-          sha256sum secureblog-${{ github.ref_name }}.sbom.json > secureblog-${{ github.ref_name }}.sbom.json.sha256
-
-      - name: Sign artifacts with Cosign
-        run: |
-          cosign sign-blob --yes \
-            --oidc-issuer https://token.actions.githubusercontent.com \
-            --output-signature dist-${{ github.ref_name }}.tar.gz.sig \
-            --output-certificate dist-${{ github.ref_name }}.tar.gz.crt \
-            dist-${{ github.ref_name }}.tar.gz
-          
-          cosign sign-blob --yes \
-            --oidc-issuer https://token.actions.githubusercontent.com \
-            --output-signature secureblog-${{ github.ref_name }}.sbom.json.sig \
-            --output-certificate secureblog-${{ github.ref_name }}.sbom.json.crt \
-            secureblog-${{ github.ref_name }}.sbom.json
-
-      - name: Create attestation
-        uses: actions/attest-build-provenance@v1
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
         with:
-          subject-path: |
-            dist-${{ github.ref_name }}.tar.gz
-            secureblog-${{ github.ref_name }}.sbom.json
-
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v1
-        with:
-          name: SecureBlog ${{ github.ref_name }}
-          body: |
-            ## SecureBlog ${{ github.ref_name }}
-            
-            ### 🔒 Security-First Static Site Generator
-            
-            **Zero JavaScript • Deterministic Builds • Signed Artifacts**
-            
-            ### 📦 Release Assets
-            - `dist-*.tar.gz` - Pre-built static site
-            - `*.sbom.json` - Software Bill of Materials
-            - `*.sig` - Cosign signatures
-            - `*.crt` - Signing certificates
-            - `*.sha256` - Checksums
-            
-            ### ✅ Verification
-            ```bash
-            # Verify signatures
-            cosign verify-blob \
-              --certificate dist-${{ github.ref_name }}.tar.gz.crt \
-              --signature dist-${{ github.ref_name }}.tar.gz.sig \
-              --certificate-identity-regexp "^https://github.com/techmad220/secureblog" \
-              --certificate-oidc-issuer https://token.actions.githubusercontent.com \
-              dist-${{ github.ref_name }}.tar.gz
-            
-            # Verify checksums
-            sha256sum -c dist-${{ github.ref_name }}.tar.gz.sha256
-            ```
-            
-            ### 🚀 Deploy
-            Extract and deploy to any static host (Cloudflare Pages, Netlify, etc.)
-            
-            ---
-            See [Compliance Proof](https://github.com/techmad220/secureblog#compliance-proof) for security guarantees.
           files: |
-            dist-*.tar.gz*
-            secureblog-*.sbom.json*
-            *.sig
-            *.crt
-            *.sha256
-          fail_on_unmatched_files: true
-          generate_release_notes: true
+            dist/**
+            sbom.spdx.json
+            dist/**/*.sig
+            dist/**/*.pem
