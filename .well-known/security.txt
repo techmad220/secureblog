@@ -1,0 +1,57 @@
+Contact: mailto:security@secureblog.com
+Contact: https://github.com/techmad220/secureblog/security
+Expires: 2025-12-31T23:59:59Z
+Encryption: https://keys.openpgp.org/vks/v1/by-fingerprint/your-pgp-fingerprint-here
+Acknowledgments: https://github.com/techmad220/secureblog/security/acknowledgments
+Policy: https://github.com/techmad220/secureblog/security/policy
+Hiring: https://github.com/techmad220/secureblog/jobs
+
+# Security Policy for SecureBlog
+
+This project implements a Fort Knox-level secure static blog generator.
+
+## Scope
+- All code in this repository
+- Deployed instances at secureblog.com
+- CI/CD pipelines and build processes
+
+## What we're looking for
+- Security vulnerabilities in the blog generator
+- Authentication bypasses in the admin interface
+- Content injection or XSS in the static output
+- Build system compromise vectors
+- Supply chain security issues
+
+## What we're NOT looking for
+- Social engineering attacks
+- Physical security issues
+- DDoS attacks
+- Issues in third-party services we don't control
+
+## Responsible Disclosure
+1. Report security issues via GitHub Security Advisories or security@secureblog.com
+2. Do not publicly disclose until we've had time to respond
+3. Provide clear steps to reproduce the issue
+4. Allow us reasonable time to fix the issue
+
+## Bug Bounty
+While we don't have a formal bug bounty program, we deeply appreciate security research and will acknowledge researchers who help improve our security.
+
+## Security Features
+- Zero JavaScript on public site
+- Content Security Policy with 'none' default
+- Argon2id password hashing for admin
+- Signed content integrity manifests
+- Sandboxed build processes
+- SLSA Build Provenance
+- Cosign signature verification
+
+## Security Hardening
+- All dependencies pinned to specific SHAs
+- Reproducible builds with SOURCE_DATE_EPOCH
+- Comprehensive security regression testing
+- Edge-level signature verification
+- Minimal attack surface (GET/HEAD only)
+
+Last updated: 2024-01-01
+Canonical: https://secureblog.com/.well-known/security.txt

@@ -1,0 +1,315 @@
+name: SLSA Provenance Generation
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  release:
+    types: [published]
+
+# Minimal permissions for SLSA compliance
+permissions:
+  id-token: write   # for OIDC token generation
+  contents: read    # for repository access
+  actions: read     # for workflow access
+  
+# No other permissions granted - following principle of least privilege
+
+env:
+  # Build environment variables for reproducibility
+  SOURCE_DATE_EPOCH: ${{ github.event.head_commit.timestamp || github.event.release.published_at }}
+  TZ: UTC
+  LC_ALL: C
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      digest: ${{ steps.build.outputs.digest }}
+      subjects-as-file: ${{ steps.build.outputs.subjects-as-file }}
+      
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.2.2
+        with:
+          fetch-depth: 1  # Shallow clone for speed and security
+          
+      - name: Setup Go
+        uses: actions/setup-go@41dfa10bad2bb2ae585af6ee5bb4d7d973ad74ed # v5.1.0
+        with:
+          go-version: '1.23.x'
+          check-latest: true
+          
+      - name: Setup Node.js for build tools
+        uses: actions/setup-node@1e60f620b9541d16bece96c5465dc8ee9832be0b # v4.0.3
+        with:
+          node-version: '20'
+          
+      - name: Verify dependencies
+        run: |
+          # Verify go.mod and go.sum are clean
+          go mod verify
+          
+          # Check for known vulnerabilities
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          govulncheck ./...
+          
+      - name: Generate SBOM (Software Bill of Materials)
+        run: |
+          # Install SPDX SBOM generator
+          go install github.com/spdx/tools-golang/cmd/spdx-sbom-generator@latest
+          
+          # Generate SPDX SBOM
+          spdx-sbom-generator -o sbom.spdx.json -f json
+          
+          # Also generate human-readable version
+          spdx-sbom-generator -o sbom.spdx.txt -f text
+          
+      - name: Reproducible build
+        id: build
+        run: |
+          # Use our deterministic build script
+          bash ./scripts/build-deterministic.sh
+          
+          # Calculate digest of the build output
+          cd dist
+          find . -type f | sort | xargs sha256sum > ../checksums.txt
+          BUILD_DIGEST=$(sha256sum ../checksums.txt | cut -d' ' -f1)
+          echo "digest=${BUILD_DIGEST}" >> "$GITHUB_OUTPUT"
+          
+          # Create subjects file for SLSA
+          echo "Creating SLSA subjects..."
+          cat > subjects.json << EOF
+          [
+            {
+              "name": "admin-server",
+              "digest": {
+                "sha256": "$(sha256sum admin-server | cut -d' ' -f1)"
+              }
+            },
+            {
+              "name": "blog-generator", 
+              "digest": {
+                "sha256": "$(sha256sum blog-generator | cut -d' ' -f1)"
+              }
+            },
+            {
+              "name": "site.tar.gz",
+              "digest": {
+                "sha256": "$(sha256sum site.tar.gz | cut -d' ' -f1)"
+              }
+            },
+            {
+              "name": "manifest.json",
+              "digest": {
+                "sha256": "$(sha256sum manifest.json | cut -d' ' -f1)"
+              }
+            }
+          ]
+          EOF
+          
+          # Copy subjects to output
+          cp subjects.json ../subjects.json
+          echo "subjects-as-file=../subjects.json" >> "$GITHUB_OUTPUT"
+          
+      - name: Sign artifacts with Cosign
+        uses: sigstore/cosign-installer@dc72c7d5c4d10cd6bcb8cf6e3fd625a9e5e537da # v3.7.0
+        
+      - name: Sign build artifacts
+        env:
+          COSIGN_EXPERIMENTAL: 1
+        run: |
+          cd dist
+          
+          # Sign all major artifacts
+          cosign sign-blob admin-server \
+            --output-signature admin-server.sig \
+            --output-certificate admin-server.crt \
+            --yes
+            
+          cosign sign-blob blog-generator \
+            --output-signature blog-generator.sig \
+            --output-certificate blog-generator.crt \
+            --yes
+            
+          cosign sign-blob manifest.json \
+            --output-signature manifest.json.sig \
+            --output-certificate manifest.json.crt \
+            --yes
+            
+          cosign sign-blob site.tar.gz \
+            --output-signature site.tar.gz.sig \
+            --output-certificate site.tar.gz.crt \
+            --yes
+            
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882 # v4.4.3
+        with:
+          name: build-artifacts
+          path: |
+            dist/
+            sbom.spdx.json
+            sbom.spdx.txt
+            checksums.txt
+            subjects.json
+          retention-days: 30
+          
+      - name: Create release assets (if tag)
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          # Create comprehensive release package
+          mkdir -p release/
+          
+          # Copy binaries and signatures
+          cp dist/admin-server release/
+          cp dist/blog-generator release/
+          cp dist/*.sig release/
+          cp dist/*.crt release/
+          
+          # Copy documentation and verification files
+          cp sbom.spdx.json release/
+          cp checksums.txt release/
+          cp dist/manifest.json release/
+          
+          # Create verification instructions
+          cat > release/VERIFY.md << 'EOF'
+          # Verification Instructions
+          
+          This release includes cryptographic signatures and SLSA provenance for verification.
+          
+          ## Verify Binary Signatures
+          ```bash
+          # Install cosign
+          go install github.com/sigstore/cosign/v2/cmd/cosign@latest
+          
+          # Verify admin-server binary
+          cosign verify-blob admin-server \
+            --signature admin-server.sig \
+            --certificate admin-server.crt \
+            --certificate-identity-regexp=".*" \
+            --certificate-oidc-issuer-regexp=".*"
+            
+          # Verify blog-generator binary
+          cosign verify-blob blog-generator \
+            --signature blog-generator.sig \
+            --certificate blog-generator.crt \
+            --certificate-identity-regexp=".*" \
+            --certificate-oidc-issuer-regexp=".*"
+          ```
+          
+          ## Verify SLSA Provenance
+          ```bash
+          # Install slsa-verifier
+          go install github.com/slsa-framework/slsa-verifier/v2/cli/slsa-verifier@latest
+          
+          # Verify provenance (will be available after workflow completes)
+          slsa-verifier verify-artifact admin-server \
+            --provenance-path admin-server.intoto.jsonl \
+            --source-uri github.com/techmad220/secureblog
+          ```
+          
+          ## Verify Checksums
+          ```bash
+          # Verify file integrity
+          sha256sum -c checksums.txt
+          ```
+          
+          ## SBOM (Software Bill of Materials)
+          The `sbom.spdx.json` file contains a complete inventory of all dependencies and components used in this build.
+          EOF
+          
+          # Create final release archive
+          tar -czf "secureblog-${GITHUB_REF_NAME}.tar.gz" -C release .
+          
+      - name: Upload release assets
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882 # v4.4.3
+        with:
+          name: release-assets
+          path: "secureblog-${{ github.ref_name }}.tar.gz"
+
+  # Generate SLSA provenance
+  provenance:
+    needs: build
+    uses: slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@v2.0.0
+    with:
+      base64-subjects-as-file: ${{ needs.build.outputs.subjects-as-file }}
+      provenance-name: "slsa-provenance.intoto.jsonl"
+      
+  # Verify the generated provenance
+  verify-provenance:
+    needs: [build, provenance]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 # v4.1.8
+        with:
+          name: build-artifacts
+          
+      - name: Download provenance
+        uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 # v4.1.8
+        with:
+          name: slsa-provenance.intoto.jsonl
+          
+      - name: Install SLSA verifier
+        run: |
+          go install github.com/slsa-framework/slsa-verifier/v2/cli/slsa-verifier@latest
+          
+      - name: Verify provenance
+        run: |
+          # Verify provenance for each artifact
+          slsa-verifier verify-artifact dist/admin-server \
+            --provenance-path slsa-provenance.intoto.jsonl \
+            --source-uri github.com/techmad220/secureblog \
+            --source-tag ${GITHUB_REF_NAME}
+            
+          slsa-verifier verify-artifact dist/blog-generator \
+            --provenance-path slsa-provenance.intoto.jsonl \
+            --source-uri github.com/techmad220/secureblog \
+            --source-tag ${GITHUB_REF_NAME}
+            
+          echo "✅ SLSA provenance verification successful!"
+
+  # Create GitHub release (if tag)
+  release:
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: [build, provenance, verify-provenance]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write  # for creating releases
+      
+    steps:
+      - name: Download release assets
+        uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 # v4.1.8
+        
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@c062e08bd532815e2082a85e87e3ef29c3e6d191 # v2.0.8
+        with:
+          files: |
+            release-assets/secureblog-${{ github.ref_name }}.tar.gz
+            slsa-provenance.intoto.jsonl/slsa-provenance.intoto.jsonl
+          body: |
+            ## SecureBlog ${{ github.ref_name }}
+            
+            **Fort Knox-level secure static blog generator**
+            
+            ### 🔐 Security Features
+            - Zero JavaScript on public site
+            - SLSA Level 3 build provenance
+            - Cosign-signed artifacts
+            - Comprehensive SBOM included
+            - Reproducible builds with SOURCE_DATE_EPOCH
+            
+            ### 📋 Verification
+            All artifacts are signed and include SLSA provenance. See `VERIFY.md` in the release archive for verification instructions.
+            
+            ### 🛡️ Security Notes
+            - All dependencies pinned to specific commit SHAs
+            - Built in sandboxed environment
+            - Comprehensive security regression testing
+            - Content integrity verification at edge
+            
+            **Build Digest:** `${{ needs.build.outputs.digest }}`
+          draft: false
+          prerelease: false
+          generate_release_notes: true

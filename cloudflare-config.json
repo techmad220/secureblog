@@ -1,0 +1,206 @@
+{
+  "_metadata": {
+    "description": "Fort Knox Cloudflare configuration - disable all foot-guns",
+    "last_updated": "2024-01-01",
+    "warning": "DO NOT enable HTML rewriting features - they break security"
+  },
+  
+  "security_settings": {
+    "description": "Core security settings that must be enabled",
+    "settings": {
+      "security_level": "high",
+      "bot_fight_mode": true,
+      "browser_integrity_check": true,
+      "challenge_passage": 1800,
+      "waf": {
+        "enabled": true,
+        "mode": "simulate",
+        "rules": {
+          "owasp": true,
+          "cloudflare_managed": true,
+          "custom_rules": [
+            {
+              "description": "Block common attack patterns",
+              "expression": "(http.request.uri contains \"<script\" or http.request.uri contains \"javascript:\" or http.request.uri contains \"../..\" or http.request.headers[\"user-agent\"] contains \"sqlmap\")",
+              "action": "block"
+            },
+            {
+              "description": "Rate limit aggressive bots",
+              "expression": "(http.request.headers[\"user-agent\"] contains \"python-requests\" or http.request.headers[\"user-agent\"] contains \"curl\" or http.request.headers[\"user-agent\"] eq \"\")",
+              "action": "rate_limit",
+              "rate_limit": {
+                "requests_per_period": 10,
+                "period": 60,
+                "mitigation_timeout": 3600
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+
+  "dangerous_features_to_disable": {
+    "description": "These features MUST be disabled - they can rewrite HTML/JS and break security",
+    "rocket_loader": {
+      "enabled": false,
+      "reason": "Rewrites JavaScript - breaks zero-JS policy",
+      "setting_path": "Speed > Optimization > Rocket Loader"
+    },
+    "auto_minify": {
+      "html": false,
+      "css": false,
+      "javascript": false,
+      "reason": "Minification can break CSP and integrity checks",
+      "setting_path": "Speed > Optimization > Auto Minify"
+    },
+    "mirage": {
+      "enabled": false,
+      "reason": "Image optimization can break integrity checks",
+      "setting_path": "Speed > Optimization > Mirage"
+    },
+    "email_obfuscation": {
+      "enabled": false,
+      "reason": "Rewrites HTML content",
+      "setting_path": "Scrape Shield > Email Address Obfuscation"
+    },
+    "always_online": {
+      "enabled": false,
+      "reason": "Can serve cached versions with wrong integrity",
+      "setting_path": "Caching > Always Online"
+    },
+    "browser_cache_ttl": {
+      "value": 14400,
+      "reason": "4 hours max to allow content updates",
+      "setting_path": "Caching > Browser Cache TTL"
+    },
+    "development_mode": {
+      "enabled": false,
+      "reason": "Must be off in production",
+      "setting_path": "Quick Actions > Development Mode"
+    }
+  },
+
+  "required_page_rules": [
+    {
+      "url": "secureblog.com/*",
+      "settings": {
+        "cache_level": "cache_everything",
+        "edge_cache_ttl": 3600,
+        "browser_cache_ttl": 14400,
+        "disable_performance": true,
+        "disable_railgun": true,
+        "security_header": {
+          "strict_transport_security": {
+            "enabled": true,
+            "max_age": 31536000,
+            "include_subdomains": true,
+            "preload": true
+          }
+        }
+      }
+    },
+    {
+      "url": "secureblog.com/manifest.json",
+      "settings": {
+        "cache_level": "cache_everything",
+        "edge_cache_ttl": 300,
+        "browser_cache_ttl": 300
+      },
+      "reason": "Manifest should update quickly but still cache"
+    },
+    {
+      "url": "secureblog.com/*.html",
+      "settings": {
+        "cache_level": "cache_everything",
+        "edge_cache_ttl": 3600,
+        "browser_cache_ttl": 14400,
+        "disable_apps": true
+      }
+    }
+  ],
+
+  "r2_bucket_security": {
+    "description": "R2 bucket must be private with scoped tokens",
+    "bucket_settings": {
+      "public_access": false,
+      "list_objects_permission": "deny",
+      "cors_policy": {
+        "allowed_origins": ["https://secureblog.com"],
+        "allowed_methods": ["GET", "HEAD"],
+        "max_age": 86400
+      }
+    },
+    "api_token_scopes": {
+      "description": "Create separate tokens with minimal permissions",
+      "ci_token": {
+        "permissions": ["Zone:Read", "Zone:Edit", "Page Rules:Edit"],
+        "zone_resources": ["include:secureblog.com"],
+        "ip_filtering": "optional_github_actions_ips"
+      },
+      "deployment_token": {
+        "permissions": ["Zone:Read", "Zone Cache Purge"],
+        "zone_resources": ["include:secureblog.com"]
+      }
+    }
+  },
+
+  "dns_security": {
+    "description": "DNS security features",
+    "settings": {
+      "dnssec": true,
+      "caa_records": [
+        {
+          "name": "secureblog.com",
+          "type": "CAA",
+          "value": "0 issue \"letsencrypt.org\"",
+          "ttl": 3600
+        },
+        {
+          "name": "secureblog.com", 
+          "type": "CAA",
+          "value": "0 issuewild \";\"",
+          "ttl": 3600
+        },
+        {
+          "name": "secureblog.com",
+          "type": "CAA", 
+          "value": "0 iodef \"mailto:security@secureblog.com\"",
+          "ttl": 3600
+        }
+      ]
+    }
+  },
+
+  "monitoring_and_alerting": {
+    "description": "Set up alerts for security events",
+    "alerts": [
+      {
+        "name": "WAF Blocks",
+        "condition": "waf_blocks > 100 per hour",
+        "action": "email_admin"
+      },
+      {
+        "name": "High Error Rate",
+        "condition": "5xx_errors > 10 per minute",
+        "action": "email_admin"
+      },
+      {
+        "name": "Suspicious Bot Activity",
+        "condition": "bot_score < 30 and requests > 1000 per hour",
+        "action": "email_admin"
+      }
+    ]
+  },
+
+  "validation_commands": {
+    "description": "Commands to verify Cloudflare configuration",
+    "commands": [
+      "curl -sI https://secureblog.com | grep -i 'strict-transport-security'",
+      "curl -sI https://secureblog.com | grep -i 'content-security-policy'", 
+      "curl -sI https://secureblog.com | grep -i 'x-frame-options'",
+      "dig secureblog.com CAA +short",
+      "curl -s https://secureblog.com/manifest.json | jq '.version'"
+    ]
+  }
+}

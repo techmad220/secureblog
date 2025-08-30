@@ -1,0 +1,35 @@
+# CODEOWNERS - Require approval for security-critical paths
+# https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+
+# Security-critical paths require 2+ reviewers
+/templates/ @techmad220 @security-team
+/scripts/security-* @techmad220 @security-team
+/scripts/deploy-* @techmad220 @security-team
+/scripts/verify-* @techmad220 @security-team
+
+# Workflow files are critical infrastructure
+/.github/workflows/ @techmad220 @security-team
+/.github/actions/ @techmad220 @security-team
+
+# Build and deployment scripts
+/build-sandbox.sh @techmad220 @security-team
+/Dockerfile* @techmad220 @security-team
+/docker-compose* @techmad220 @security-team
+
+# Security configuration files
+/security/ @techmad220 @security-team
+/.well-known/ @techmad220 @security-team
+/nginx/ @techmad220 @security-team
+
+# Authentication and core server code
+/cmd/admin-server/auth.go @techmad220 @security-team
+/cmd/admin-server/main.go @techmad220 @security-team
+
+# Dependency management
+/go.mod @techmad220 @security-team
+/go.sum @techmad220 @security-team
+/package*.json @techmad220 @security-team
+/yarn.lock @techmad220 @security-team
+
+# Default fallback - all other files need 1+ reviewer
+* @techmad220
