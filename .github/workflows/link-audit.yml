@@ -1,0 +1,30 @@
+name: Link Audit
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  link-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Build with your hardened makefile
+      - name: Secure build
+        run: make -f Makefile.security build
+
+      - name: Run link & anchor auditor
+        run: |
+          bash scripts/e2e-link-check.sh dist | tee link-audit.txt
+
+      - name: Upload audit log
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: link-audit
+          path: link-audit.txt
