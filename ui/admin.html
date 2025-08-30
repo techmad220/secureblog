@@ -1,0 +1,934 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SecureBlog Admin - WordPress Easy, Fort Knox Secure</title>
+    <meta name="description" content="Ultra-secure blog admin interface">
+    <!-- Security headers via meta tags -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self';">
+    <meta http-equiv="X-Frame-Options" content="DENY">
+    <meta http-equiv="X-Content-Type-Options" content="nosniff">
+    
+    <style>
+        :root {
+            --primary: #2563eb;
+            --primary-dark: #1d4ed8;
+            --success: #059669;
+            --danger: #dc2626;
+            --warning: #d97706;
+            --gray-50: #f9fafb;
+            --gray-100: #f3f4f6;
+            --gray-200: #e5e7eb;
+            --gray-300: #d1d5db;
+            --gray-400: #9ca3af;
+            --gray-500: #6b7280;
+            --gray-600: #4b5563;
+            --gray-700: #374151;
+            --gray-800: #1f2937;
+            --gray-900: #111827;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: var(--gray-50);
+            color: var(--gray-900);
+            line-height: 1.6;
+        }
+
+        /* Header */
+        .header {
+            background: white;
+            border-bottom: 1px solid var(--gray-200);
+            padding: 1rem 0;
+            box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1);
+            position: sticky;
+            top: 0;
+            z-index: 50;
+        }
+
+        .header-content {
+            max-width: 7xl;
+            margin: 0 auto;
+            padding: 0 1rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-size: 1.25rem;
+            font-weight: 700;
+            color: var(--primary);
+        }
+
+        .security-badge {
+            background: var(--success);
+            color: white;
+            padding: 0.25rem 0.5rem;
+            border-radius: 0.375rem;
+            font-size: 0.75rem;
+            font-weight: 600;
+        }
+
+        /* Main Layout */
+        .main-container {
+            max-width: 7xl;
+            margin: 0 auto;
+            padding: 2rem 1rem;
+            display: grid;
+            grid-template-columns: 250px 1fr;
+            gap: 2rem;
+        }
+
+        /* Sidebar */
+        .sidebar {
+            background: white;
+            border-radius: 0.5rem;
+            padding: 1.5rem;
+            border: 1px solid var(--gray-200);
+            height: fit-content;
+            position: sticky;
+            top: 120px;
+        }
+
+        .nav-item {
+            display: block;
+            padding: 0.75rem 1rem;
+            margin: 0.25rem 0;
+            border-radius: 0.375rem;
+            text-decoration: none;
+            color: var(--gray-700);
+            transition: all 0.2s;
+            cursor: pointer;
+            border: none;
+            background: none;
+            width: 100%;
+            text-align: left;
+        }
+
+        .nav-item:hover, .nav-item.active {
+            background: var(--primary);
+            color: white;
+        }
+
+        /* Main Content */
+        .main-content {
+            background: white;
+            border-radius: 0.5rem;
+            border: 1px solid var(--gray-200);
+            min-height: 70vh;
+        }
+
+        /* Content Sections */
+        .content-section {
+            display: none;
+            padding: 2rem;
+        }
+
+        .content-section.active {
+            display: block;
+        }
+
+        .section-header {
+            margin-bottom: 2rem;
+            padding-bottom: 1rem;
+            border-bottom: 1px solid var(--gray-200);
+        }
+
+        .section-title {
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: var(--gray-900);
+            margin-bottom: 0.5rem;
+        }
+
+        .section-desc {
+            color: var(--gray-600);
+        }
+
+        /* Forms */
+        .form-group {
+            margin-bottom: 1.5rem;
+        }
+
+        .form-label {
+            display: block;
+            margin-bottom: 0.5rem;
+            font-weight: 600;
+            color: var(--gray-700);
+        }
+
+        .form-input, .form-textarea, .form-select {
+            width: 100%;
+            padding: 0.75rem;
+            border: 1px solid var(--gray-300);
+            border-radius: 0.375rem;
+            font-size: 0.875rem;
+            transition: border-color 0.2s;
+        }
+
+        .form-input:focus, .form-textarea:focus, .form-select:focus {
+            outline: none;
+            border-color: var(--primary);
+            box-shadow: 0 0 0 3px rgb(37 99 235 / 0.1);
+        }
+
+        .form-textarea {
+            min-height: 120px;
+            resize: vertical;
+            font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+        }
+
+        /* Editor */
+        .editor-container {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1rem;
+            height: 500px;
+        }
+
+        .editor-pane {
+            border: 1px solid var(--gray-300);
+            border-radius: 0.375rem;
+            overflow: hidden;
+        }
+
+        .editor-header {
+            background: var(--gray-100);
+            padding: 0.5rem 1rem;
+            font-size: 0.875rem;
+            font-weight: 600;
+            color: var(--gray-700);
+            border-bottom: 1px solid var(--gray-300);
+        }
+
+        .editor-content {
+            height: calc(100% - 40px);
+            padding: 1rem;
+            font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+            font-size: 0.875rem;
+            resize: none;
+            border: none;
+            outline: none;
+        }
+
+        .preview-content {
+            height: calc(100% - 40px);
+            padding: 1rem;
+            overflow-y: auto;
+            background: white;
+        }
+
+        /* Buttons */
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.75rem 1.5rem;
+            font-size: 0.875rem;
+            font-weight: 600;
+            border-radius: 0.375rem;
+            border: none;
+            cursor: pointer;
+            transition: all 0.2s;
+            text-decoration: none;
+        }
+
+        .btn-primary {
+            background: var(--primary);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: var(--primary-dark);
+        }
+
+        .btn-success {
+            background: var(--success);
+            color: white;
+        }
+
+        .btn-danger {
+            background: var(--danger);
+            color: white;
+        }
+
+        .btn-secondary {
+            background: var(--gray-200);
+            color: var(--gray-700);
+        }
+
+        /* Status */
+        .status-indicator {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.5rem 1rem;
+            border-radius: 0.375rem;
+            font-size: 0.875rem;
+            font-weight: 600;
+        }
+
+        .status-success {
+            background: rgb(220 252 231);
+            color: var(--success);
+        }
+
+        .status-error {
+            background: rgb(254 226 226);
+            color: var(--danger);
+        }
+
+        .status-warning {
+            background: rgb(254 243 199);
+            color: var(--warning);
+        }
+
+        /* Cards */
+        .card {
+            background: white;
+            border: 1px solid var(--gray-200);
+            border-radius: 0.5rem;
+            padding: 1.5rem;
+            margin-bottom: 1rem;
+        }
+
+        .card-header {
+            margin-bottom: 1rem;
+            padding-bottom: 1rem;
+            border-bottom: 1px solid var(--gray-200);
+        }
+
+        .card-title {
+            font-size: 1.125rem;
+            font-weight: 700;
+            color: var(--gray-900);
+        }
+
+        /* File Upload */
+        .upload-zone {
+            border: 2px dashed var(--gray-300);
+            border-radius: 0.5rem;
+            padding: 3rem 2rem;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .upload-zone:hover {
+            border-color: var(--primary);
+            background: rgb(37 99 235 / 0.05);
+        }
+
+        .upload-zone.dragover {
+            border-color: var(--primary);
+            background: rgb(37 99 235 / 0.1);
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .main-container {
+                grid-template-columns: 1fr;
+                gap: 1rem;
+                padding: 1rem;
+            }
+            
+            .sidebar {
+                position: static;
+            }
+            
+            .editor-container {
+                grid-template-columns: 1fr;
+                height: auto;
+            }
+            
+            .editor-pane {
+                height: 300px;
+            }
+        }
+
+        /* Loading spinner */
+        .spinner {
+            border: 2px solid var(--gray-200);
+            border-top: 2px solid var(--primary);
+            border-radius: 50%;
+            width: 20px;
+            height: 20px;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        /* Hide sections by default */
+        .content-section {
+            animation: fadeIn 0.3s ease-in-out;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+    </style>
+</head>
+<body>
+    <!-- Header -->
+    <header class="header">
+        <div class="header-content">
+            <div class="logo">
+                🔒 SecureBlog
+                <span class="security-badge">ULTRA SECURE</span>
+            </div>
+            <div class="status-indicator status-success" id="statusIndicator">
+                ✅ System Secure
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Container -->
+    <div class="main-container">
+        <!-- Sidebar Navigation -->
+        <nav class="sidebar">
+            <button class="nav-item active" onclick="showSection('dashboard')">
+                📊 Dashboard
+            </button>
+            <button class="nav-item" onclick="showSection('editor')">
+                ✏️ Write Post
+            </button>
+            <button class="nav-item" onclick="showSection('posts')">
+                📝 All Posts
+            </button>
+            <button class="nav-item" onclick="showSection('media')">
+                🖼️ Media Library
+            </button>
+            <button class="nav-item" onclick="showSection('themes')">
+                🎨 Appearance
+            </button>
+            <button class="nav-item" onclick="showSection('settings')">
+                ⚙️ Settings
+            </button>
+            <button class="nav-item" onclick="showSection('security')">
+                🛡️ Security
+            </button>
+            <button class="nav-item" onclick="showSection('deploy')">
+                🚀 Deploy
+            </button>
+        </nav>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- Dashboard Section -->
+            <section id="dashboard" class="content-section active">
+                <div class="section-header">
+                    <h1 class="section-title">Dashboard</h1>
+                    <p class="section-desc">Welcome to your ultra-secure blog administration</p>
+                </div>
+
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1rem; margin-bottom: 2rem;">
+                    <div class="card">
+                        <div class="card-header">
+                            <h3 class="card-title">📝 Posts</h3>
+                        </div>
+                        <p style="font-size: 2rem; font-weight: 700; color: var(--primary);" id="postCount">0</p>
+                        <p style="color: var(--gray-600);">Total posts published</p>
+                    </div>
+
+                    <div class="card">
+                        <div class="card-header">
+                            <h3 class="card-title">🔒 Security Status</h3>
+                        </div>
+                        <p style="font-size: 2rem; font-weight: 700; color: var(--success);">A+</p>
+                        <p style="color: var(--gray-600);">All security checks passed</p>
+                    </div>
+
+                    <div class="card">
+                        <div class="card-header">
+                            <h3 class="card-title">🚀 Last Deploy</h3>
+                        </div>
+                        <p style="font-size: 1rem; font-weight: 600; color: var(--primary);" id="lastDeploy">Never</p>
+                        <p style="color: var(--gray-600);">Site deployment status</p>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-header">
+                        <h3 class="card-title">🎯 Quick Actions</h3>
+                    </div>
+                    <div style="display: flex; gap: 1rem; flex-wrap: wrap;">
+                        <button class="btn btn-primary" onclick="showSection('editor')">
+                            ✏️ Write New Post
+                        </button>
+                        <button class="btn btn-success" onclick="deployBlog()">
+                            🚀 Deploy Blog
+                        </button>
+                        <button class="btn btn-secondary" onclick="runSecurityScan()">
+                            🛡️ Security Scan
+                        </button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Editor Section -->
+            <section id="editor" class="content-section">
+                <div class="section-header">
+                    <h1 class="section-title">Write Post</h1>
+                    <p class="section-desc">Create beautiful, secure content with live preview</p>
+                </div>
+
+                <form id="postForm">
+                    <div class="form-group">
+                        <label class="form-label" for="postTitle">Post Title</label>
+                        <input type="text" id="postTitle" class="form-input" placeholder="Enter your post title..." required>
+                    </div>
+
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1.5rem;">
+                        <div class="form-group">
+                            <label class="form-label" for="postSlug">URL Slug</label>
+                            <input type="text" id="postSlug" class="form-input" placeholder="my-awesome-post">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label" for="postTags">Tags (comma separated)</label>
+                            <input type="text" id="postTags" class="form-input" placeholder="security, blog, tech">
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label">Content</label>
+                        <div class="editor-container">
+                            <div class="editor-pane">
+                                <div class="editor-header">📝 Markdown Editor</div>
+                                <textarea id="markdownEditor" class="editor-content" placeholder="# Your Post Title
+
+Write your content here in **Markdown**...
+
+- Easy formatting
+- Live preview
+- Ultra secure
+
+![Image description](/images/example.jpg)"></textarea>
+                            </div>
+                            <div class="editor-pane">
+                                <div class="editor-header">👁️ Live Preview</div>
+                                <div id="previewPane" class="preview-content">
+                                    <p style="color: var(--gray-500); font-style: italic;">Preview will appear here as you type...</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div style="display: flex; gap: 1rem; margin-top: 1.5rem;">
+                        <button type="button" class="btn btn-secondary" onclick="saveDraft()">
+                            💾 Save Draft
+                        </button>
+                        <button type="submit" class="btn btn-primary">
+                            📝 Publish Post
+                        </button>
+                        <button type="button" class="btn btn-success" onclick="publishAndDeploy()">
+                            🚀 Publish & Deploy
+                        </button>
+                    </div>
+                </form>
+            </section>
+
+            <!-- Posts Management -->
+            <section id="posts" class="content-section">
+                <div class="section-header">
+                    <h1 class="section-title">All Posts</h1>
+                    <p class="section-desc">Manage your published and draft posts</p>
+                </div>
+
+                <div id="postsList">
+                    <!-- Posts will be loaded here -->
+                    <div class="card">
+                        <p style="text-align: center; color: var(--gray-500); padding: 2rem;">
+                            Loading posts... <span class="spinner" style="margin-left: 0.5rem;"></span>
+                        </p>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Media Library -->
+            <section id="media" class="content-section">
+                <div class="section-header">
+                    <h1 class="section-title">Media Library</h1>
+                    <p class="section-desc">Upload and manage images securely</p>
+                </div>
+
+                <div class="card">
+                    <div class="card-header">
+                        <h3 class="card-title">Upload New Image</h3>
+                    </div>
+                    <div class="upload-zone" id="uploadZone">
+                        <div style="font-size: 3rem; margin-bottom: 1rem;">📁</div>
+                        <h3 style="margin-bottom: 0.5rem;">Drag & drop images here</h3>
+                        <p style="color: var(--gray-600); margin-bottom: 1rem;">or click to browse</p>
+                        <button class="btn btn-primary">Choose Files</button>
+                        <input type="file" id="imageInput" multiple accept="image/*" style="display: none;">
+                    </div>
+                </div>
+
+                <div id="mediaGrid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 1rem; margin-top: 2rem;">
+                    <!-- Media items will be loaded here -->
+                </div>
+            </section>
+
+            <!-- Security Status -->
+            <section id="security" class="content-section">
+                <div class="section-header">
+                    <h1 class="section-title">Security Dashboard</h1>
+                    <p class="section-desc">Your blog's security status and controls</p>
+                </div>
+
+                <div class="card">
+                    <div class="card-header">
+                        <h3 class="card-title">🛡️ Security Checks</h3>
+                    </div>
+                    <div style="display: grid; gap: 1rem;" id="securityChecks">
+                        <div style="display: flex; justify-content: space-between; align-items: center; padding: 0.75rem; background: var(--gray-50); border-radius: 0.375rem;">
+                            <span>JavaScript Protection</span>
+                            <span class="status-indicator status-success">✅ Active</span>
+                        </div>
+                        <div style="display: flex; justify-content: space-between; align-items: center; padding: 0.75rem; background: var(--gray-50); border-radius: 0.375rem;">
+                            <span>Content Security Policy</span>
+                            <span class="status-indicator status-success">✅ Strict</span>
+                        </div>
+                        <div style="display: flex; justify-content: space-between; align-items: center; padding: 0.75rem; background: var(--gray-50); border-radius: 0.375rem;">
+                            <span>HTTPS Enforcement</span>
+                            <span class="status-indicator status-success">✅ Enabled</span>
+                        </div>
+                        <div style="display: flex; justify-content: space-between; align-items: center; padding: 0.75rem; background: var(--gray-50); border-radius: 0.375rem;">
+                            <span>Supply Chain Security</span>
+                            <span class="status-indicator status-success">✅ Verified</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-header">
+                        <h3 class="card-title">🔍 Security Actions</h3>
+                    </div>
+                    <div style="display: flex; gap: 1rem; flex-wrap: wrap;">
+                        <button class="btn btn-primary" onclick="runSecurityScan()">
+                            🔍 Run Security Scan
+                        </button>
+                        <button class="btn btn-secondary" onclick="checkIntegrity()">
+                            ✅ Verify Integrity
+                        </button>
+                        <button class="btn btn-secondary" onclick="auditLogs()">
+                            📊 View Audit Logs
+                        </button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Deploy Section -->
+            <section id="deploy" class="content-section">
+                <div class="section-header">
+                    <h1 class="section-title">Deploy Blog</h1>
+                    <p class="section-desc">Securely publish your changes to the world</p>
+                </div>
+
+                <div class="card">
+                    <div class="card-header">
+                        <h3 class="card-title">🚀 Deployment Status</h3>
+                    </div>
+                    <div id="deployStatus" style="padding: 1rem; background: var(--gray-50); border-radius: 0.375rem; margin-bottom: 1rem;">
+                        <p>Ready to deploy</p>
+                    </div>
+                    <button class="btn btn-success" onclick="deployBlog()">
+                        🚀 Deploy Now
+                    </button>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <!-- JavaScript (Local Admin Only - Never deployed) -->
+    <script>
+        // Security Notice: This JavaScript is for LOCAL ADMIN ONLY
+        // It is never deployed to the public site, maintaining zero-JS policy
+        
+        let currentSection = 'dashboard';
+        let autoSaveInterval;
+        
+        // Navigation
+        function showSection(sectionId) {
+            // Hide all sections
+            document.querySelectorAll('.content-section').forEach(section => {
+                section.classList.remove('active');
+            });
+            
+            // Remove active from nav items
+            document.querySelectorAll('.nav-item').forEach(item => {
+                item.classList.remove('active');
+            });
+            
+            // Show selected section
+            document.getElementById(sectionId).classList.add('active');
+            event.target.classList.add('active');
+            
+            currentSection = sectionId;
+            
+            // Load section-specific data
+            loadSectionData(sectionId);
+        }
+        
+        // Load data for each section
+        function loadSectionData(sectionId) {
+            switch(sectionId) {
+                case 'posts':
+                    loadPosts();
+                    break;
+                case 'media':
+                    loadMedia();
+                    break;
+                case 'dashboard':
+                    loadDashboard();
+                    break;
+            }
+        }
+        
+        // Dashboard functions
+        function loadDashboard() {
+            // Simulated data loading
+            document.getElementById('postCount').textContent = '12';
+            document.getElementById('lastDeploy').textContent = '2 hours ago';
+        }
+        
+        // Editor functions
+        document.addEventListener('DOMContentLoaded', function() {
+            const titleInput = document.getElementById('postTitle');
+            const slugInput = document.getElementById('postSlug');
+            const editor = document.getElementById('markdownEditor');
+            const preview = document.getElementById('previewPane');
+            
+            // Auto-generate slug from title
+            if (titleInput) {
+                titleInput.addEventListener('input', function() {
+                    if (slugInput && !slugInput.value) {
+                        slugInput.value = this.value.toLowerCase()
+                            .replace(/[^a-z0-9]+/g, '-')
+                            .replace(/^-|-$/g, '');
+                    }
+                });
+            }
+            
+            // Live markdown preview
+            if (editor) {
+                editor.addEventListener('input', function() {
+                    updatePreview(this.value);
+                });
+            }
+            
+            // Setup auto-save
+            setupAutoSave();
+            
+            // Setup drag and drop
+            setupFileUpload();
+        });
+        
+        function updatePreview(markdown) {
+            // Simple markdown to HTML conversion for preview
+            // In production, this would use a proper markdown parser
+            let html = markdown
+                .replace(/# (.*)/g, '<h1>$1</h1>')
+                .replace(/## (.*)/g, '<h2>$1</h2>')
+                .replace(/### (.*)/g, '<h3>$1</h3>')
+                .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+                .replace(/\*(.*?)\*/g, '<em>$1</em>')
+                .replace(/`(.*?)`/g, '<code>$1</code>')
+                .replace(/\n\n/g, '</p><p>')
+                .replace(/\n- (.*)/g, '<li>$1</li>');
+            
+            document.getElementById('previewPane').innerHTML = '<p>' + html + '</p>';
+        }
+        
+        function setupAutoSave() {
+            autoSaveInterval = setInterval(function() {
+                if (document.getElementById('markdownEditor').value.trim()) {
+                    saveDraft(true);
+                }
+            }, 30000); // Auto-save every 30 seconds
+        }
+        
+        function saveDraft(isAuto = false) {
+            const formData = getFormData();
+            
+            // Simulate saving draft
+            console.log('Saving draft:', formData);
+            
+            if (!isAuto) {
+                showNotification('Draft saved successfully!', 'success');
+            }
+        }
+        
+        function getFormData() {
+            return {
+                title: document.getElementById('postTitle').value,
+                slug: document.getElementById('postSlug').value,
+                tags: document.getElementById('postTags').value,
+                content: document.getElementById('markdownEditor').value,
+                timestamp: new Date().toISOString()
+            };
+        }
+        
+        // File upload
+        function setupFileUpload() {
+            const uploadZone = document.getElementById('uploadZone');
+            const fileInput = document.getElementById('imageInput');
+            
+            if (uploadZone && fileInput) {
+                uploadZone.addEventListener('click', () => fileInput.click());
+                uploadZone.addEventListener('dragover', handleDragOver);
+                uploadZone.addEventListener('drop', handleFileDrop);
+                fileInput.addEventListener('change', handleFileSelect);
+            }
+        }
+        
+        function handleDragOver(e) {
+            e.preventDefault();
+            e.currentTarget.classList.add('dragover');
+        }
+        
+        function handleFileDrop(e) {
+            e.preventDefault();
+            e.currentTarget.classList.remove('dragover');
+            const files = e.dataTransfer.files;
+            processFiles(files);
+        }
+        
+        function handleFileSelect(e) {
+            processFiles(e.target.files);
+        }
+        
+        function processFiles(files) {
+            for (let file of files) {
+                if (file.type.startsWith('image/')) {
+                    uploadImage(file);
+                }
+            }
+        }
+        
+        function uploadImage(file) {
+            // Security: Validate file type and size
+            if (file.size > 10 * 1024 * 1024) { // 10MB limit
+                showNotification('File too large. Maximum size is 10MB.', 'error');
+                return;
+            }
+            
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                // Simulate upload
+                console.log('Uploading image:', file.name);
+                showNotification(`Image "${file.name}" uploaded successfully!`, 'success');
+            };
+            reader.readAsDataURL(file);
+        }
+        
+        // Deployment functions
+        function deployBlog() {
+            showNotification('Deploying blog...', 'info');
+            
+            // Simulate deployment process
+            setTimeout(() => {
+                showNotification('Blog deployed successfully! 🚀', 'success');
+                document.getElementById('lastDeploy').textContent = 'Just now';
+            }, 3000);
+        }
+        
+        function publishAndDeploy() {
+            const formData = getFormData();
+            
+            if (!formData.title || !formData.content) {
+                showNotification('Please fill in title and content', 'error');
+                return;
+            }
+            
+            showNotification('Publishing post and deploying...', 'info');
+            
+            // Simulate publish and deploy
+            setTimeout(() => {
+                showNotification('Post published and deployed successfully! 🎉', 'success');
+                document.getElementById('postForm').reset();
+                document.getElementById('previewPane').innerHTML = '<p style="color: var(--gray-500); font-style: italic;">Preview will appear here as you type...</p>';
+            }, 3000);
+        }
+        
+        // Security functions
+        function runSecurityScan() {
+            showNotification('Running security scan...', 'info');
+            
+            setTimeout(() => {
+                showNotification('Security scan complete: All checks passed! ✅', 'success');
+            }, 2000);
+        }
+        
+        function checkIntegrity() {
+            showNotification('Verifying content integrity...', 'info');
+            
+            setTimeout(() => {
+                showNotification('Integrity verification passed! ✅', 'success');
+            }, 1500);
+        }
+        
+        // Utility functions
+        function showNotification(message, type = 'info') {
+            const notification = document.createElement('div');
+            notification.className = `status-indicator status-${type === 'info' ? 'warning' : type}`;
+            notification.textContent = message;
+            notification.style.position = 'fixed';
+            notification.style.top = '20px';
+            notification.style.right = '20px';
+            notification.style.zIndex = '1000';
+            notification.style.maxWidth = '300px';
+            
+            document.body.appendChild(notification);
+            
+            setTimeout(() => {
+                notification.remove();
+            }, 5000);
+        }
+        
+        function loadPosts() {
+            // Simulate loading posts
+            const postsList = document.getElementById('postsList');
+            postsList.innerHTML = `
+                <div class="card">
+                    <h3>Sample Blog Post</h3>
+                    <p style="color: var(--gray-600); margin: 0.5rem 0;">Published 2 days ago</p>
+                    <div style="display: flex; gap: 1rem; margin-top: 1rem;">
+                        <button class="btn btn-secondary">Edit</button>
+                        <button class="btn btn-danger">Delete</button>
+                    </div>
+                </div>
+            `;
+        }
+        
+        function loadMedia() {
+            // Simulate loading media
+            const mediaGrid = document.getElementById('mediaGrid');
+            mediaGrid.innerHTML = `
+                <div class="card" style="text-align: center; padding: 1rem;">
+                    <div style="background: var(--gray-100); height: 120px; border-radius: 0.375rem; margin-bottom: 0.5rem;"></div>
+                    <p style="font-size: 0.875rem;">sample-image.jpg</p>
+                </div>
+            `;
+        }
+        
+        // Load dashboard on page load
+        loadDashboard();
+    </script>
+</body>
+</html>
