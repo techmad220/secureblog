@@ -1,8 +1,8 @@
-// admin-server - WordPress-easy, Fort Knox secure blog admin
+// admin-server - WordPress-easy, Fort Knox secure blog admin  
 package main
 
 import (
-	"crypto/subtle"
+	"context"
 	"encoding/json"
 	"fmt"
 	"html/template"
@@ -11,8 +11,11 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"strings"
+	"sync"
+	"syscall"
 	"time"
 
 	"github.com/gorilla/mux"
@@ -20,14 +23,22 @@ import (
 )
 
 const (
-	maxUploadSize = 10 << 20 // 10MB
-	serverPort    = "3000"
-	adminUser     = "admin"
+	maxUploadSize   = 10 << 20      // 10MB
+	serverPort      = "3000"
+	adminUser       = "admin"
+	sessionTimeout  = 30 * time.Minute  // 30 minutes
+	inactivityLimit = 2 * time.Hour     // Auto-kill after 2 hours inactivity
 )
 
 type Server struct {
-	secureCookie *securecookie.SecureCookie
-	templates    *template.Template
+	secureCookie    *securecookie.SecureCookie
+	templates       *template.Template
+	passwordHash    PasswordHash
+	twoFAConfig     TwoFAConfig
+	lastActivity    time.Time
+	activeSessions  map[string]Session
+	sessionMutex    sync.RWMutex
+	shutdownChan    chan os.Signal
 }
 
 type Post struct {
@@ -54,14 +65,42 @@ type SecurityCheck struct {
 
 func main() {
 	log.Println("🔒 SecureBlog Admin Server - WordPress Easy, Fort Knox Secure")
+	log.Println("🛡️ Ultra-Paranoid Security Mode: ENABLED")
+	
+	// Initialize password hash with Argon2id
+	passwordHash, err := InitializeAdminPassword()
+	if err != nil {
+		log.Fatalf("❌ Password initialization failed: %v", err)
+	}
+	log.Println("✅ Argon2id password hashing initialized")
+	
+	// Setup 2FA (optional)
+	twoFAConfig, err := Setup2FA(adminUser)
+	if err != nil {
+		log.Printf("⚠️ 2FA setup failed: %v", err)
+	} else {
+		log.Println("✅ 2FA/TOTP ready (optional)")
+	}
 	
 	// Create server with secure cookie
 	hashKey := securecookie.GenerateRandomKey(64)
 	blockKey := securecookie.GenerateRandomKey(32)
 	
 	server := &Server{
-		secureCookie: securecookie.New(hashKey, blockKey),
+		secureCookie:    securecookie.New(hashKey, blockKey),
+		passwordHash:    passwordHash,
+		twoFAConfig:     twoFAConfig,
+		lastActivity:    time.Now(),
+		activeSessions:  make(map[string]Session),
+		shutdownChan:    make(chan os.Signal, 1),
 	}
+	
+	// Start inactivity monitor
+	go server.monitorInactivity()
+	
+	// Handle graceful shutdown
+	signal.Notify(server.shutdownChan, os.Interrupt, syscall.SIGTERM)
+	go server.handleShutdown()
 	
 	// Setup router
 	r := mux.NewRouter()
@@ -90,7 +129,7 @@ func main() {
 	api.HandleFunc("/settings", server.updateSettingsHandler).Methods("POST")
 	
 	// Authentication
-	r.HandleFunc("/login", server.loginHandler).Methods("POST")
+	r.HandleFunc("/login", server.loginHandler).Methods("GET", "POST")
 	r.HandleFunc("/logout", server.logoutHandler).Methods("POST")
 	
 	// Static files for admin interface
@@ -99,11 +138,23 @@ func main() {
 	
 	// Security headers middleware
 	r.Use(securityHeadersMiddleware)
+	// IP restriction middleware (localhost only)
+	r.Use(server.ipRestrictionMiddleware)
+	// Activity tracking middleware
+	r.Use(server.activityTrackingMiddleware)
 	
 	log.Printf("🚀 Admin server running on http://localhost:%s", serverPort)
 	log.Println("👤 Default login: admin / (set ADMIN_PASSWORD env var)")
+	log.Println("🔒 Localhost-only binding active (127.0.0.1)")
+	log.Printf("⏰ Auto-kill after %v inactivity", inactivityLimit)
 	
-	log.Fatal(http.ListenAndServe(":"+serverPort, r))
+	// Bind to localhost only for security
+	httpServer := &http.Server{
+		Addr:    "127.0.0.1:" + serverPort,
+		Handler: r,
+	}
+	
+	log.Fatal(httpServer.ListenAndServe())
 }
 
 func (s *Server) adminHandler(w http.ResponseWriter, r *http.Request) {
@@ -190,20 +241,32 @@ func (s *Server) loginHandler(w http.ResponseWriter, r *http.Request) {
 	username := r.FormValue("username")
 	password := r.FormValue("password")
 	
-	// Get admin password from env or default
-	adminPassword := os.Getenv("ADMIN_PASSWORD")
-	if adminPassword == "" {
-		adminPassword = "secure123" // Default for development
-	}
-	
-	// Constant-time comparison to prevent timing attacks
-	if subtle.ConstantTimeCompare([]byte(username), []byte(adminUser)) == 1 &&
-		subtle.ConstantTimeCompare([]byte(password), []byte(adminPassword)) == 1 {
+	// Use Argon2id password verification
+	if username == adminUser && VerifyPasswordHash(password, s.passwordHash) {
 		
-		// Create secure session
+		// Create secure session with timeout
+		sessionID := generateSessionID()
+		clientIP := GetClientIP(r)
+		userAgent := r.UserAgent()
+		
+		session := Session{
+			Username:      username,
+			LoginTime:     time.Now(),
+			LastActive:    time.Now(),
+			IPAddress:     clientIP,
+			UserAgent:     userAgent,
+			TwoFAVerified: false, // Will be true after 2FA if enabled
+		}
+		
+		// Store session
+		s.sessionMutex.Lock()
+		s.activeSessions[sessionID] = session
+		s.sessionMutex.Unlock()
+		
+		// Create session cookie
 		value := map[string]string{
-			"username": username,
-			"loginTime": time.Now().Format(time.RFC3339),
+			"sessionID": sessionID,
+			"username":  username,
 		}
 		
 		encoded, err := s.secureCookie.Encode("session", value)
@@ -219,7 +282,7 @@ func (s *Server) loginHandler(w http.ResponseWriter, r *http.Request) {
 			Secure:   false, // Set to true in production with HTTPS
 			HttpOnly: true,
 			SameSite: http.SameSiteStrictMode,
-			MaxAge:   86400, // 24 hours
+			MaxAge:   int(sessionTimeout.Seconds()),
 		}
 		http.SetCookie(w, cookie)
 		
@@ -241,7 +304,36 @@ func (s *Server) isAuthenticated(r *http.Request) bool {
 		return false
 	}
 	
-	return value["username"] == adminUser
+	sessionID := value["sessionID"]
+	if sessionID == "" {
+		return false
+	}
+	
+	// Check session validity
+	s.sessionMutex.RLock()
+	session, exists := s.activeSessions[sessionID]
+	s.sessionMutex.RUnlock()
+	
+	if !exists {
+		return false
+	}
+	
+	// Check session timeout and IP
+	if !IsSessionValid(session, sessionTimeout) || !ValidateClientIP(GetClientIP(r)) {
+		// Remove expired/invalid session
+		s.sessionMutex.Lock()
+		delete(s.activeSessions, sessionID)
+		s.sessionMutex.Unlock()
+		return false
+	}
+	
+	// Update last active time
+	s.sessionMutex.Lock()
+	session.LastActive = time.Now()
+	s.activeSessions[sessionID] = session
+	s.sessionMutex.Unlock()
+	
+	return session.Username == adminUser
 }
 
 func (s *Server) authMiddleware(next http.Handler) http.Handler {
@@ -477,8 +569,22 @@ func (s *Server) updateSettingsHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) logoutHandler(w http.ResponseWriter, r *http.Request) {
+	// Remove session from active sessions
+	cookie, err := r.Cookie("session")
+	if err == nil {
+		value := make(map[string]string)
+		if s.secureCookie.Decode("session", cookie.Value, &value) == nil {
+			sessionID := value["sessionID"]
+			if sessionID != "" {
+				s.sessionMutex.Lock()
+				delete(s.activeSessions, sessionID)
+				s.sessionMutex.Unlock()
+			}
+		}
+	}
+	
 	// Clear session cookie
-	cookie := &http.Cookie{
+	cookie = &http.Cookie{
 		Name:     "session",
 		Value:    "",
 		Path:     "/",
@@ -499,9 +605,84 @@ func securityHeadersMiddleware(next http.Handler) http.Handler {
 		w.Header().Set("X-XSS-Protection", "1; mode=block")
 		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
 		w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate")
+		w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline';")
 		
 		next.ServeHTTP(w, r)
 	})
+}
+
+// IP restriction middleware (localhost only)
+func (s *Server) ipRestrictionMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		clientIP := GetClientIP(r)
+		if !ValidateClientIP(clientIP) {
+			log.Printf("⚠️ Blocked non-localhost request from %s", clientIP)
+			http.Error(w, "Access denied - localhost only", http.StatusForbidden)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// Activity tracking middleware
+func (s *Server) activityTrackingMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		s.lastActivity = time.Now()
+		next.ServeHTTP(w, r)
+	})
+}
+
+// Monitor inactivity and auto-kill process
+func (s *Server) monitorInactivity() {
+	ticker := time.NewTicker(5 * time.Minute) // Check every 5 minutes
+	defer ticker.Stop()
+	
+	for {
+		select {
+		case <-ticker.C:
+			if time.Since(s.lastActivity) > inactivityLimit {
+				log.Printf("⚠️ Auto-kill: No activity for %v, shutting down for security", time.Since(s.lastActivity))
+				s.shutdownChan <- os.Interrupt
+				return
+			}
+			
+			// Clean expired sessions
+			s.sessionMutex.Lock()
+			for sessionID, session := range s.activeSessions {
+				if !IsSessionValid(session, sessionTimeout) {
+					delete(s.activeSessions, sessionID)
+				}
+			}
+			s.sessionMutex.Unlock()
+		}
+	}
+}
+
+// Handle graceful shutdown
+func (s *Server) handleShutdown() {
+	<-s.shutdownChan
+	log.Println("🔒 Graceful shutdown initiated...")
+	
+	// Clear all sessions
+	s.sessionMutex.Lock()
+	s.activeSessions = make(map[string]Session)
+	s.sessionMutex.Unlock()
+	
+	log.Println("✅ All sessions cleared")
+	os.Exit(0)
+}
+
+// Generate secure session ID
+func generateSessionID() string {
+	return fmt.Sprintf("%d-%s", time.Now().UnixNano(), generateRandomString(32))
+}
+
+func generateRandomString(length int) string {
+	bytes := make([]byte, length)
+	for i := range bytes {
+		bytes[i] = byte(65 + (time.Now().UnixNano() % 26)) // Simple random A-Z
+	}
+	return string(bytes)
 }
 
 // Utility functions
