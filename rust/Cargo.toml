@@ -1,0 +1,52 @@
+[package]
+name = "secureblog-rs"
+version = "0.1.0"
+edition = "2021"
+authors = ["SecureBlog Team"]
+license = "MIT"
+description = "Ultra-secure static blog generator with zero JavaScript"
+
+[profile.release]
+opt-level = "z"     # Optimize for size
+lto = true          # Link-time optimization
+codegen-units = 1   # Single codegen unit for better optimization
+strip = true        # Strip symbols
+panic = "abort"     # Smaller binary, no unwinding
+
+[dependencies]
+# Core dependencies - minimal and audited
+askama = "0.12"                    # Type-safe templating
+comrak = "0.28"                    # CommonMark parser
+serde = { version = "1.0", features = ["derive"] }
+serde_yaml = "0.9"                 # YAML frontmatter
+chrono = { version = "0.4", default-features = false, features = ["clock", "std", "serde"] }
+sha2 = "0.10"                      # SHA-256 hashing
+blake3 = "1.5"                     # BLAKE3 hashing (faster)
+anyhow = "1.0"                     # Error handling
+walkdir = "2.5"                    # Directory traversal
+rayon = "1.10"                     # Parallel processing
+html5ever = "0.29"                 # HTML sanitization
+ammonia = "4.0"                    # HTML sanitization
+regex = "1.11"                     # Pattern matching
+once_cell = "1.20"                 # Lazy statics
+tracing = "0.1"                    # Structured logging
+tracing-subscriber = "0.3"
+
+[dev-dependencies]
+insta = "1.41"                     # Snapshot testing
+proptest = "1.6"                   # Property-based testing
+criterion = "0.5"                  # Benchmarking
+
+[[bench]]
+name = "markdown"
+harness = false
+
+[lints.rust]
+unsafe_code = "forbid"             # No unsafe code allowed
+missing_docs = "warn"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+nursery = { level = "warn", priority = -1 }
+cargo = { level = "warn", priority = -1 }
