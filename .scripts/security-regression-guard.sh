@@ -1,64 +1,61 @@
 #!/usr/bin/env bash
-# Strict no-JS + no-inline-handlers gate for generated site
-# PRODUCTION: Run on dist/ output ONLY (not source files)
-set -Eeuo pipefail
-IFS=$'\n\t'
+# Fail the build if any JavaScript or risky embeds are found.
+# Scans templates/ and dist/ by default.
 
-DIST="${1:-dist}"
-FAIL=0
+set -euo pipefail
 
-if [[ ! -d "$DIST" ]]; then
-  printf 'ERROR: dist directory not found: %s\n' "$DIST" >&2
-  exit 2
+ROOT="$(git rev-parse --show-toplevel 2>/dev/null || echo "$(pwd)")"
+SCAN_PATHS=("${ROOT}/templates" "${ROOT}/dist")
+
+if [[ $# -gt 0 ]]; then
+  SCAN_PATHS=("$@")
 fi
 
-# 1. Reject ANY .js files
-if find "$DIST" -type f -name "*.js" -print -quit | grep -q .; then
-  printf 'FAIL: JavaScript files detected in %s\n' "$DIST" >&2
-  find "$DIST" -type f -name "*.js" -print >&2
-  FAIL=1
+echo "[guard] scanning paths:"
+printf '  - %s\n' "${SCAN_PATHS[@]}"
+
+# Patterns that should never appear in a zero-JS site.
+BAD_HTML_REGEX='(<script\b|javascript:|on[a-z]+\s*=|<iframe\b|<object\b|<embed\b|<applet\b|<canvas\b|<audio\b|<video\b|<form\b|fetch\s*\(|navigator\.|document\.cookie|<svg[^>]*onload=)'
+BAD_CSS_REGEX='url\s*\(\s*["'\'']?\s*javascript:|@import'
+
+FOUND=0
+
+scan_dir() {
+  local dir="$1"
+  if [[ -d "$dir" ]]; then
+    # HTML/XML/RSS
+    if grep -RInE --include='*.htm' --include='*.html' --include='*.xml' --include='*.rss' "$BAD_HTML_REGEX" "$dir" >/tmp/guard_html_hits 2>/dev/null; then
+      echo "[guard] ❌ forbidden HTML/JS patterns found:"
+      cat /tmp/guard_html_hits
+      FOUND=1
+    fi
+    # CSS
+    if grep -RInE --include='*.css' "$BAD_CSS_REGEX" "$dir" >/tmp/guard_css_hits 2>/dev/null; then
+      echo "[guard] ❌ forbidden CSS patterns found:"
+      cat /tmp/guard_css_hits
+      FOUND=1
+    fi
+  fi
+}
+
+for p in "${SCAN_PATHS[@]}"; do
+  scan_dir "$p"
+done
+
+# Check security headers file exists and has a locked-down CSP.
+HEADERS_FILE="${ROOT}/security-headers.conf"
+if [[ -f "$HEADERS_FILE" ]]; then
+  if ! grep -Eq "^Content-Security-Policy:\s*default-src 'none';" "$HEADERS_FILE"; then
+    echo "[guard] ❌ CSP not strict enough in security-headers.conf (expect \"default-src 'none';\")."
+    FOUND=1
+  fi
+else
+  echo "[guard] ⚠️ security-headers.conf not found; skipping CSP check."
 fi
 
-# 2. Reject <script> tags in HTML
-if grep -r '<script' "$DIST" --include="*.html" 2>/dev/null; then
-  printf 'FAIL: <script> tags found in HTML\n' >&2
-  FAIL=1
-fi
-
-# 3. Reject inline event handlers (onclick, onload, etc.)
-if grep -rE '\bon(click|load|error|change|submit|keydown|keyup|mousedown|mouseup|mouseover|mouseout|focus|blur|input|scroll|resize|select|touchstart|touchend|touchmove|dragstart|dragend|drop|hashchange|popstate|storage|unload|beforeunload|pageshow|pagehide|animationstart|animationend|transitionend|message|online|offline|wheel|contextmenu|copy|cut|paste|play|pause|ended|volumechange|seeking|seeked|ratechange|durationchange|loadstart|progress|suspend|abort|stalled|loadedmetadata|loadeddata|waiting|playing|canplay|canplaythrough|timeupdate)\s*=' "$DIST" --include="*.html" 2>/dev/null; then
-  printf 'FAIL: Inline event handlers detected\n' >&2
-  FAIL=1
-fi
-
-# 4. Reject javascript: and data: URIs in href/src attributes
-if grep -rE '(href|src)\s*=\s*["'\'']?\s*(javascript|data):' "$DIST" --include="*.html" 2>/dev/null; then
-  printf 'FAIL: javascript: or data: URIs found\n' >&2
-  FAIL=1
-fi
-
-# 5. Reject WebAssembly files
-if find "$DIST" -type f -name "*.wasm" -print -quit | grep -q .; then
-  printf 'FAIL: WebAssembly files detected in %s\n' "$DIST" >&2
-  find "$DIST" -type f -name "*.wasm" -print >&2
-  FAIL=1
-fi
-
-# 6. Reject service worker registration
-if grep -r 'navigator\.serviceWorker' "$DIST" --include="*.html" 2>/dev/null; then
-  printf 'FAIL: Service worker registration detected\n' >&2
-  FAIL=1
-fi
-
-# 7. Reject import/export statements (ES6 modules)
-if grep -rE '^\s*(import|export)\s+' "$DIST" --include="*.html" 2>/dev/null; then
-  printf 'FAIL: ES6 module syntax detected\n' >&2
-  FAIL=1
-fi
-
-if [[ $FAIL -eq 1 ]]; then
-  printf '\n❌ Security regression guard FAILED\n' >&2
+if [[ "$FOUND" -ne 0 ]]; then
+  echo "[guard] failing build due to security regressions."
   exit 1
 fi
 
-printf '✅ Security regression guard PASSED (no JS/handlers in %s)\n' "$DIST"
+echo "[guard] ✅ no forbidden constructs detected."

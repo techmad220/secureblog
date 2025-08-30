@@ -1,0 +1,71 @@
+name: ci-security
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+  security-events: write
+  id-token: write
+
+jobs:
+  build-and-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Ensure vendored modules
+        run: go mod vendor
+
+      - name: Build (sandboxed)
+        run: |
+          chmod +x ./build-sandbox.sh || true
+          ./build-sandbox.sh
+
+      - name: No-JS regression guard
+        run: bash .scripts/security-regression-guard.sh
+
+      - name: Go vet + staticcheck
+        run: |
+          go vet ./...
+          go install honnef.co/go/tools/cmd/staticcheck@latest
+          "$(go env GOPATH)/bin/staticcheck" ./...
+
+      - name: govulncheck (SARIF)
+        uses: golang/govulncheck-action@v1
+        with:
+          go-version-file: go.mod
+          args: ./...
+
+      - name: Secret scan (gitleaks)
+        uses: gitleaks/gitleaks-action@v2
+        with:
+          args: detect --no-banner --redact
+
+      - name: Install lychee
+        run: |
+          curl -sSfL https://github.com/lycheeverse/lychee/releases/latest/download/lychee-x86_64-unknown-linux-gnu.tar.gz | tar xz
+          sudo mv lychee /usr/local/bin/
+
+      - name: Link check (README + built site)
+        run: |
+          lychee --offline --verbose --no-progress README.md dist
+
+      - name: Install tidy (HTML validator)
+        run: sudo apt-get update && sudo apt-get install -y tidy
+
+      - name: Validate HTML (errors fail)
+        run: |
+          find dist -type f -name '*.html' -print0 | xargs -0 -n1 tidy -q -e
+
+      - name: Upload built site
+        uses: actions/upload-artifact@v4
+        with:
+          name: site
+          path: dist

@@ -1,57 +1,47 @@
 name: provenance
+
 on:
-  push:
-    branches: [ "main" ]
+  workflow_run:
+    workflows: [ "deploy-pages", "ci-security" ]
+    types: [ completed ]
+
 permissions:
+  contents: write
   id-token: write
-  contents: read
+
 jobs:
-  attest:
+  package-dist:
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with: { fetch-depth: 0 }
+      - uses: actions/download-artifact@v4
+        with:
+          name: site
+          path: dist
+      - name: Tar site
+        run: tar -C dist -czf dist.tar.gz .
 
-      - uses: actions/setup-go@v5
-        with: { go-version: "1.22.x" }
-
-      - name: Build site artifacts
-        run: |
-          make build
-          tar -C build -czf site.tar.gz .
-
-      - name: Generate provenance predicate
-        run: |
-          cat > provenance.json <<'JSON'
-          {
-            "predicateType": "https://slsa.dev/provenance/v1",
-            "buildType": "secureblog-go-static",
-            "buildConfig": {
-              "repo": "${{ github.repository }}",
-              "commit": "${{ github.sha }}",
-              "runner": "github-actions",
-              "generator": "secureblog"
-            }
-          }
-          JSON
-
-      - name: Install cosign
-        uses: sigstore/cosign-installer@v3.6.0
-
-      - name: Attest site tarball (keyless)
-        env:
-          COSIGN_EXPERIMENTAL: "1"
-        run: |
-          cosign attest-blob --yes \
-            --predicate provenance.json \
-            --type slsaprovenance \
-            site.tar.gz > site.tar.gz.attestation
-
-      - name: Upload artifacts
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: secureblog-site+attestation
-          path: |
-            site.tar.gz
-            site.tar.gz.attestation
-            provenance.json
+          name: dist-tarball
+          path: dist.tar.gz
+
+  slsa-provenance:
+    needs: package-dist
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: write
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist-tarball
+          path: .
+      - name: Generate SLSA provenance
+        uses: slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@v2.1.0
+        with:
+          artifact_path: dist.tar.gz
+          attestation_name: secureblog-dist

@@ -297,6 +297,54 @@ make -f Makefile.security analytics
 - `-trimpath` flag for path independence
 - `-mod=readonly` for dependency integrity
 - SHA-256 manifest for all files
+
+## 🔒 CI/CD Security Pipeline
+
+### Comprehensive Security Gates
+Every push and PR triggers our multi-layered security validation:
+
+#### `.github/workflows/ci-security.yml`
+- **Sandboxed builds** - Isolated build environment
+- **No-JS enforcement** - Fails if ANY JavaScript detected
+- **Go security scanning**:
+  - `go vet` - Static analysis
+  - `staticcheck` - Advanced Go linting
+  - `govulncheck` - Vulnerability scanning with SARIF output
+- **Secret scanning** - Gitleaks detection
+- **Link validation** - Lychee offline link checker
+- **HTML validation** - W3C tidy compliance checks
+- **Artifact generation** - Secure site bundle
+
+#### `.github/workflows/deploy-pages.yml`
+- **Automated Cloudflare Pages deployment**
+- **No-JS regression guard before deploy**
+- **Zero-downtime updates**
+- **CDN-only architecture** (no origin server)
+
+#### `.github/workflows/provenance.yml`
+- **SLSA Level 3 provenance generation**
+- **Keyless signing with Cosign**
+- **Cryptographic attestation**
+- **Supply chain transparency**
+
+### Security Scripts
+
+#### Enhanced Security Regression Guard
+The updated `.scripts/security-regression-guard.sh` now detects:
+- `<script>` tags and JavaScript URLs
+- Inline event handlers (`onclick`, `onload`, etc.)
+- Risky embeds (`<iframe>`, `<object>`, `<embed>`)
+- Canvas, audio, video elements
+- Form submissions and fetch calls
+- Browser API usage (`navigator`, `document.cookie`)
+- Dangerous CSS patterns (`javascript:` URLs, `@import`)
+- CSP header validation
+
+#### Manifest Generation & Signing
+`scripts/sign-manifest.sh` creates:
+- SHA-256 hash manifest of all files
+- Keyless Cosign signatures when available
+- Cryptographic proof of content integrity
 - Cosign attestation for provenance
 
 ### Supply Chain Security

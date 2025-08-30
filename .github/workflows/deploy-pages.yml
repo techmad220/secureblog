@@ -1,24 +1,36 @@
 name: deploy-pages
+
 on:
   push:
-    branches: [ "main" ]
+    branches: [main]
+
 permissions:
   contents: read
+  id-token: write
+
 jobs:
-  deploy:
+  build-and-deploy:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with: { fetch-depth: 0 }
+
       - uses: actions/setup-go@v5
-        with: { go-version: "1.22.x" }
-      - name: Build site
-        run: make build
+        with:
+          go-version-file: go.mod
+
+      - name: Build (sandboxed)
+        run: |
+          chmod +x ./build-sandbox.sh || true
+          ./build-sandbox.sh
+
+      - name: No-JS regression guard
+        run: bash .scripts/security-regression-guard.sh
+
       - name: Deploy to Cloudflare Pages
         uses: cloudflare/pages-action@v1
         with:
           apiToken: ${{ secrets.CF_API_TOKEN }}
           accountId: ${{ secrets.CF_ACCOUNT_ID }}
           projectName: secureblog
-          directory: build
+          directory: dist
           gitHubToken: ${{ secrets.GITHUB_TOKEN }}
