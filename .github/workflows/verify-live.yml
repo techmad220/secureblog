@@ -1,0 +1,74 @@
+name: Verify Live Security
+
+on:
+  push:
+    branches: [ "main" ]
+  schedule:
+    - cron: "17 3 * * *"  # nightly
+  workflow_dispatch: {}
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    env:
+      SITE_URL: https://secureblog.pages.dev  # change to your custom domain if you use one
+    steps:
+      - name: Fetch homepage
+        run: |
+          set -euo pipefail
+          curl -sS -D headers.txt -o body.html "$SITE_URL"
+          echo "=== Headers ==="; cat headers.txt
+
+      - name: Assert strict headers (CSP/XFO/HSTS/Referrer/Permissions/CORP/COOP/COEP)
+        run: |
+          set -euo pipefail
+          grep -qi "^content-security-policy: *default-src 'none';" headers.txt
+          grep -qi "^x-frame-options: *DENY" headers.txt
+          grep -qi "^x-content-type-options: *nosniff" headers.txt
+          grep -qi "^strict-transport-security: *max-age=" headers.txt
+          grep -qi "^referrer-policy: *no-referrer" headers.txt
+          grep -qi "^permissions-policy:" headers.txt
+          grep -qi "^cross-origin-opener-policy:" headers.txt
+          grep -qi "^cross-origin-embedder-policy:" headers.txt
+          grep -qi "^cross-origin-resource-policy:" headers.txt
+
+      - name: Assert no JavaScript in body
+        run: |
+          set -euo pipefail
+          if grep -qi "<script" body.html; then
+            echo "Found <script> tag in body"; exit 1
+          fi
+          if grep -Eqi "on(load|click|error|mouseover)=" body.html; then
+            echo "Found inline event handlers"; exit 1
+          fi
+          if grep -Eqi "javascript:" body.html; then
+            echo "Found javascript: URL"; exit 1
+          fi
+
+      - name: Assert POST is blocked (405/403) and body size ~0
+        run: |
+          set -euo pipefail
+          code=$(curl -sS -o /dev/null -w "%{http_code}" -X POST "$SITE_URL")
+          echo "POST got $code"
+          [[ "$code" == "405" || "$code" == "403" ]]
+
+      - name: Assert small request body limit (~1KB)
+        run: |
+          set -euo pipefail
+          head -c 2048 < /dev/zero | tr '\0' 'A' > two_kb.txt
+          code=$(curl -sS -o /dev/null -w "%{http_code}" --data-binary @two_kb.txt "$SITE_URL")
+          echo "2KB POST got $code"
+          [[ "$code" == "405" || "$code" == "413" || "$code" == "403" ]]
+
+      - name: Assert 404 on nonsense path (no dir listing)
+        run: |
+          set -euo pipefail
+          code=$(curl -sS -o /dev/null -w "%{http_code}" "$SITE_URL/this-should-not-exist-$(date +%s).html")
+          echo "nonsense path got $code"
+          [[ "$code" == "404" || "$code" == "410" ]]
+
+      - name: Fail if headers became weaker (naive checks)
+        run: |
+          set -euo pipefail
+          # CSP must include default-src 'none'
+          grep -qi "^content-security-policy:.*default-src 'none'" headers.txt

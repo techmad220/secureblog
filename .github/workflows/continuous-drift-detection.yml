@@ -1,0 +1,221 @@
+name: Continuous Drift Detection
+
+on:
+  schedule:
+    - cron: "*/6 * * * *"  # Every 6 hours
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  detect-configuration-drift:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
+        
+      - name: Check GitHub branch protection
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          
+          echo "🔍 Checking branch protection settings..."
+          
+          # Get current branch protection
+          PROTECTION=$(gh api repos/${{ github.repository }}/branches/main/protection || echo "{}")
+          
+          # Verify required checks
+          REQUIRED_CHECKS=$(echo "$PROTECTION" | jq -r '.required_status_checks.contexts[]' 2>/dev/null || echo "")
+          
+          EXPECTED_CHECKS=(
+            "SecureBlog – Build • Verify • Attest • Deploy"
+            "Supply Chain Security"
+            "CodeQL"
+            "Link Audit"
+            "Verify Live Security"
+          )
+          
+          for check in "${EXPECTED_CHECKS[@]}"; do
+            if ! echo "$REQUIRED_CHECKS" | grep -q "$check"; then
+              echo "❌ Missing required check: $check"
+              exit 1
+            fi
+          done
+          
+          # Verify enforce_admins
+          if [ "$(echo "$PROTECTION" | jq -r '.enforce_admins.enabled')" != "true" ]; then
+            echo "❌ Admin enforcement is disabled!"
+            exit 1
+          fi
+          
+          # Verify signed commits
+          if [ "$(echo "$PROTECTION" | jq -r '.required_signatures.enabled')" != "true" ]; then
+            echo "❌ Signed commits not required!"
+            exit 1
+          fi
+          
+          echo "✅ Branch protection configured correctly"
+          
+      - name: Check live site headers
+        run: |
+          set -euo pipefail
+          
+          echo "🔍 Checking live site security headers..."
+          
+          SITE_URL="https://secureblog.pages.dev"
+          curl -sS -D headers.txt -o /dev/null "$SITE_URL"
+          
+          # Define expected headers
+          declare -A EXPECTED_HEADERS=(
+            ["content-security-policy"]="default-src 'none'"
+            ["x-frame-options"]="DENY"
+            ["x-content-type-options"]="nosniff"
+            ["strict-transport-security"]="max-age=63072000"
+            ["referrer-policy"]="no-referrer"
+            ["permissions-policy"]="accelerometer=()"
+          )
+          
+          for header in "${!EXPECTED_HEADERS[@]}"; do
+            if ! grep -qi "^$header:" headers.txt; then
+              echo "❌ Missing header: $header"
+              exit 1
+            fi
+            
+            if ! grep -qi "^$header:.*${EXPECTED_HEADERS[$header]}" headers.txt; then
+              echo "❌ Invalid value for $header"
+              echo "Expected: ${EXPECTED_HEADERS[$header]}"
+              grep -i "^$header:" headers.txt || true
+              exit 1
+            fi
+          done
+          
+          echo "✅ Security headers configured correctly"
+          
+      - name: Check for JavaScript presence
+        run: |
+          set -euo pipefail
+          
+          echo "🔍 Checking for JavaScript in production..."
+          
+          SITE_URL="https://secureblog.pages.dev"
+          
+          # Check main page
+          curl -sS -o body.html "$SITE_URL"
+          
+          if grep -qi "<script" body.html; then
+            echo "❌ Found <script> tags in production!"
+            grep -n "<script" body.html || true
+            exit 1
+          fi
+          
+          if grep -Eqi "on(load|click|error)=" body.html; then
+            echo "❌ Found inline event handlers!"
+            grep -En "on(load|click|error)=" body.html || true
+            exit 1
+          fi
+          
+          if grep -qi "javascript:" body.html; then
+            echo "❌ Found javascript: URLs!"
+            grep -n "javascript:" body.html || true
+            exit 1
+          fi
+          
+          # Check for .js files
+          if curl -sS -o /dev/null -w "%{http_code}" "$SITE_URL/app.js" | grep -q "200"; then
+            echo "❌ JavaScript files are accessible!"
+            exit 1
+          fi
+          
+          echo "✅ No JavaScript detected"
+          
+      - name: Check request methods
+        run: |
+          set -euo pipefail
+          
+          echo "🔍 Checking allowed request methods..."
+          
+          SITE_URL="https://secureblog.pages.dev"
+          
+          # POST should be blocked
+          POST_CODE=$(curl -sS -o /dev/null -w "%{http_code}" -X POST "$SITE_URL")
+          if [ "$POST_CODE" != "405" ] && [ "$POST_CODE" != "403" ]; then
+            echo "❌ POST method not blocked! Got: $POST_CODE"
+            exit 1
+          fi
+          
+          # PUT should be blocked
+          PUT_CODE=$(curl -sS -o /dev/null -w "%{http_code}" -X PUT "$SITE_URL")
+          if [ "$PUT_CODE" != "405" ] && [ "$PUT_CODE" != "403" ]; then
+            echo "❌ PUT method not blocked! Got: $PUT_CODE"
+            exit 1
+          fi
+          
+          # DELETE should be blocked
+          DELETE_CODE=$(curl -sS -o /dev/null -w "%{http_code}" -X DELETE "$SITE_URL")
+          if [ "$DELETE_CODE" != "405" ] && [ "$DELETE_CODE" != "403" ]; then
+            echo "❌ DELETE method not blocked! Got: $DELETE_CODE"
+            exit 1
+          fi
+          
+          echo "✅ Only GET/HEAD methods allowed"
+          
+      - name: Check request body limits
+        run: |
+          set -euo pipefail
+          
+          echo "🔍 Checking request body limits..."
+          
+          SITE_URL="https://secureblog.pages.dev"
+          
+          # Create 2KB payload
+          head -c 2048 < /dev/zero | tr '\0' 'A' > payload.txt
+          
+          # Should be rejected
+          CODE=$(curl -sS -o /dev/null -w "%{http_code}" --data-binary @payload.txt "$SITE_URL")
+          if [ "$CODE" != "413" ] && [ "$CODE" != "403" ] && [ "$CODE" != "405" ]; then
+            echo "❌ Large request body not blocked! Got: $CODE"
+            exit 1
+          fi
+          
+          echo "✅ Request body limits enforced"
+          
+      - name: Create drift report
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const title = '🚨 Security Configuration Drift Detected';
+            const body = `
+            ## Security Drift Alert
+            
+            Configuration drift has been detected in production settings.
+            
+            **Time:** ${new Date().toISOString()}
+            **Workflow:** ${context.workflow}
+            **Run:** ${context.runNumber}
+            
+            ### Required Actions
+            1. Review the workflow logs for specific drift details
+            2. Reapply security configuration using provided scripts
+            3. Investigate how the drift occurred
+            4. Update monitoring to prevent recurrence
+            
+            ### Affected Areas
+            - [ ] Branch protection settings
+            - [ ] Security headers
+            - [ ] JavaScript presence
+            - [ ] Request methods
+            - [ ] Request body limits
+            
+            **Severity:** CRITICAL
+            **SLA:** Fix within 1 hour
+            `;
+            
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: title,
+              body: body,
+              labels: ['security', 'critical', 'drift-detection']
+            });

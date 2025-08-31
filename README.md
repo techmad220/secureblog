@@ -38,6 +38,7 @@ A maximum-security static blog generator with **plugin-based architecture**, zer
 - **SIGNED MANIFESTS** ✅ - Ed25519/Cosign signed content with SHA-256 verification
 - **SUPPLY CHAIN LOCKED** ✅ - govulncheck, staticcheck, gitleaks, SBOM in every build
 - **PLUGINS SANDBOXED** ✅ - Build-time only, network denied, namespace isolated
+- **TOKENLESS DEPLOYMENT** ✅ - Cloudflare native GitHub integration (zero API tokens)
 
 ### Core Security Features
 - **Zero JavaScript Policy** - ENFORCED by `security-regression-guard.sh` (stricter than nojs_guard)
@@ -344,7 +345,26 @@ git push origin main  # Auto-deploys via GitHub Actions
 
 ## 🚀 Deployment Options
 
-### Option 1: Cloudflare Pages (RECOMMENDED - No Origin Server!)
+### Option 1: Cloudflare Pages with Native GitHub Integration (TOKENLESS - RECOMMENDED!)
+
+**NO API TOKENS REQUIRED!** Uses Cloudflare's native GitHub OAuth integration.
+
+```bash
+# Setup tokenless deployment (one-time)
+./scripts/setup-cloudflare-github-integration.sh
+
+# Then just push to deploy - no tokens needed!
+git push origin main
+```
+
+Benefits:
+- ✅ **Zero API tokens** - OAuth-based authentication only
+- ✅ **Automatic deployments** - Every push triggers build
+- ✅ **Preview environments** - PRs get preview URLs
+- ✅ **No secrets in GitHub** - Cloudflare handles authentication
+- ✅ **Hardware key enforcement** - Via Zero-Trust dashboard
+
+### Option 2: Cloudflare Pages (Manual with API Token - Legacy)
 ```bash
 # Set secrets in GitHub:
 # - CF_API_TOKEN
@@ -488,6 +508,27 @@ Build Failures: IMMEDIATE on any violation
 
 ### 🎯 Quick Start - Maximum Security Deployment
 
+#### Option A: Tokenless Deployment (RECOMMENDED - Zero API Tokens!)
+```bash
+# 1. Setup Cloudflare native GitHub integration (no tokens!)
+./scripts/setup-cloudflare-github-integration.sh
+
+# 2. Configure Required Status Checks
+export GITHUB_TOKEN="your_admin_token"  # One-time setup only
+./scripts/configure-required-status-checks.sh techmad220/secureblog
+
+# 3. Disable ALL Cloudflare JavaScript Features
+# (Configure in Cloudflare dashboard - no API token needed)
+
+# 4. Deploy by pushing (automatic via integration)
+git push origin main
+
+# 5. Verify Zero JavaScript
+curl -I https://secureblog.pages.dev | grep -i content-security-policy
+# Must show: script-src 'none'
+```
+
+#### Option B: Manual Deployment (Legacy - Requires API Token)
 ```bash
 # 1. Configure Required Status Checks (MANDATORY)
 export GITHUB_TOKEN="your_admin_token"
@@ -865,26 +906,33 @@ curl -I https://secureblog.pages.dev | grep -i content-security-policy
 ./scripts/verify-edge-enforcement.sh
 gh attestation verify dist/index.html --repo techmad220/secureblog
 
-# Test live site
+# Test live site security
+./.github/workflows/verify-live.yml  # Or wait for nightly run
 curl https://secureblog.pages.dev | grep -c "<script"
 # MUST return: 0
 ```
 
-4. **🔒 Make Provenance Gate Required**
-   ```bash
-   # In GitHub branch protection settings, add required status check:
-   # "deploy_with_provenance_gate / build-verify-deploy"
-   # This ensures NO deployment without valid attestation verification
-   ```
+### 6️⃣ **Configure Control-Plane Hardening**
+```bash
+# Enable repository settings enforcement
+# Install GitHub Settings app: https://github.com/apps/settings
+# Settings automatically applied from .github/settings.yml
 
-5. **⚙️ Deploy Edge Security Worker**
-   ```bash
-   # Deploy the GET/HEAD-only Worker with config drift prevention
-   wrangler deploy cloudflare/edge-security-worker.js
-   
-   # Test deployment
-   ./scripts/test-edge-config.sh https://your-site.pages.dev
-   ```
+# Setup CODEOWNERS protection (already configured)
+# Critical paths require @techmad220 approval
+
+# Enable continuous drift detection
+# Runs every 6 hours via .github/workflows/continuous-drift-detection.yml
+```
+
+### 7️⃣ **Setup Multi-CDN Failover**
+```bash
+# Configure mirror deployments
+# GitHub Pages and Netlify mirrors auto-deploy on main push
+# See .github/workflows/multi-cdn-mirror.yml
+
+# DNS failover plan in place for Cloudflare outages
+```
 
 ### 🔍 **VERIFICATION CHECKLIST**
 

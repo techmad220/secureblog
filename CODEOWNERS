@@ -1,0 +1,8 @@
+# Critical security surfaces require security-team review
+.github/workflows/*           @techmad220
+cloudflare/**                 @techmad220
+nginx*.conf                   @techmad220
+systemd/**                    @techmad220
+scripts/**                    @techmad220
+src/**                        @techmad220
+templates/**                  @techmad220

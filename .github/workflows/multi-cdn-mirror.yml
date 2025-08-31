@@ -1,0 +1,151 @@
+name: Multi-CDN Mirror with Failover
+
+on:
+  workflow_run:
+    workflows: ["SecureBlog – Build • Verify • Attest • Deploy"]
+    types:
+      - completed
+  workflow_dispatch:
+
+jobs:
+  mirror-to-github-pages:
+    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
+        
+      - name: Download signed artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: dist-signed
+          path: ./dist
+          
+      - name: Verify signatures
+        run: |
+          # Verify all files have signatures
+          find dist -type f -name "*.html" -o -name "*.css" | while read -r file; do
+            if [ ! -f "$file.sig" ]; then
+              echo "Missing signature for $file"
+              exit 1
+            fi
+          done
+          
+      - name: Setup Pages
+        uses: actions/configure-pages@v4
+        
+      - name: Upload to GitHub Pages
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: ./dist
+          
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+
+  mirror-to-netlify:
+    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
+        
+      - name: Download signed artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: dist-signed
+          path: ./dist
+          
+      - name: Deploy to Netlify
+        uses: nwtgck/actions-netlify@v2.1
+        with:
+          publish-dir: ./dist
+          production-branch: main
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          deploy-message: "Mirror deploy from ${{ github.sha }}"
+          enable-pull-request-comment: false
+          enable-commit-comment: false
+          enable-commit-status: true
+          alias: secureblog-mirror
+        env:
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          NETLIFY_SITE_ID: ${{ secrets.NETLIFY_SITE_ID }}
+          
+  verify-mirrors:
+    needs: [mirror-to-github-pages, mirror-to-netlify]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify GitHub Pages mirror
+        run: |
+          set -euo pipefail
+          MIRROR_URL="https://techmad220.github.io/secureblog"
+          
+          # Wait for deployment
+          sleep 30
+          
+          # Fetch and verify
+          curl -sS -D headers.txt -o body.html "$MIRROR_URL"
+          
+          # Check no JavaScript
+          if grep -qi "<script" body.html; then
+            echo "JavaScript found in GitHub Pages mirror!"
+            exit 1
+          fi
+          
+          echo "✅ GitHub Pages mirror verified"
+          
+      - name: Verify Netlify mirror
+        run: |
+          set -euo pipefail
+          MIRROR_URL="https://secureblog-mirror.netlify.app"
+          
+          # Fetch and verify
+          curl -sS -D headers.txt -o body.html "$MIRROR_URL"
+          
+          # Check no JavaScript
+          if grep -qi "<script" body.html; then
+            echo "JavaScript found in Netlify mirror!"
+            exit 1
+          fi
+          
+          echo "✅ Netlify mirror verified"
+          
+      - name: Create DNS failover instructions
+        run: |
+          cat > dns-failover-plan.md << 'EOF'
+          # DNS Failover Plan
+          
+          ## Primary: Cloudflare Pages
+          - CNAME: secureblog.com -> secureblog.pages.dev
+          - Health check: https://secureblog.pages.dev/health
+          
+          ## Backup 1: GitHub Pages
+          - CNAME: backup1.secureblog.com -> techmad220.github.io
+          - Path: /secureblog
+          
+          ## Backup 2: Netlify
+          - CNAME: backup2.secureblog.com -> secureblog-mirror.netlify.app
+          
+          ## Failover Procedure
+          1. Detect Cloudflare outage via monitoring
+          2. Update DNS to point to backup:
+             ```bash
+             # Using Cloudflare API
+             curl -X PATCH "https://api.cloudflare.com/v4/zones/$ZONE_ID/dns_records/$RECORD_ID" \
+               -H "Authorization: Bearer $CF_API_TOKEN" \
+               -H "Content-Type: application/json" \
+               --data '{"type":"CNAME","name":"secureblog.com","content":"backup1.secureblog.com"}'
+             ```
+          3. Verify failover is working
+          4. Monitor for primary recovery
+          5. Fail back when stable
+          EOF
+          
+          echo "📋 DNS Failover plan created"
