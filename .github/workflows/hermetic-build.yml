@@ -1,0 +1,206 @@
+name: Hermetic Build
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  hermetic-build:
+    name: Hermetic Build with Network Isolation
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write  # Only for signing
+    
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@91182cccc01eb5e619899d80e4e971d6181294a7 # v2
+        with:
+          egress-policy: block
+          allowed-endpoints: >
+            github.com:443
+            api.github.com:443
+            ghcr.io:443
+            registry.npmjs.org:443
+            
+      - name: Checkout
+        uses: actions/checkout@1e31de5234b664ca3f0ed09e5ce0d6de0c5d0fc1 # v4
+        
+      - name: Verify no network calls in code
+        run: |
+          echo "Checking for network calls..."
+          
+          # Check for network access attempts
+          if grep -r "http.Get\|http.Post\|net.Dial" --include="*.go" .; then
+            echo "ERROR: Network calls detected in code"
+            exit 1
+          fi
+          
+          # Check for external dependencies
+          if grep -r "https://\|http://" --include="*.go" --include="*.js" --include="*.html" . | grep -v "localhost\|127.0.0.1"; then
+            echo "WARNING: External URLs detected"
+          fi
+          
+          echo "✓ No network calls detected"
+          
+      - name: Build in hermetic container
+        run: |
+          # Create hermetic Dockerfile
+          cat > Dockerfile.hermetic << 'EOF'
+          # Use specific digest for reproducibility
+          FROM golang:1.23-alpine@sha256:6c5c9590f169f77c8046e45c611d3b28fe477789b4e3d703b37a43c949b26389
+          
+          # No package updates (hermetic)
+          RUN apk add --no-cache git make
+          
+          # Create build user
+          RUN adduser -D -u 1000 builder
+          USER builder
+          WORKDIR /build
+          
+          # Copy only necessary files
+          COPY --chown=builder:builder . .
+          
+          # Build with no network
+          ENV GOPROXY=off \
+              GOSUMDB=off \
+              CGO_ENABLED=0 \
+              GO111MODULE=on
+          
+          # Build command
+          RUN make build
+          EOF
+          
+          # Build with complete network isolation
+          docker build \
+            --network=none \
+            --no-cache \
+            --tag secureblog-hermetic:${{ github.sha }} \
+            --file Dockerfile.hermetic \
+            .
+            
+          # Extract artifacts
+          docker create --name extract secureblog-hermetic:${{ github.sha }}
+          docker cp extract:/build/dist ./dist
+          docker rm extract
+          
+      - name: Content pipeline sanitization
+        run: |
+          echo "Running mandatory content sanitization..."
+          
+          # EXIF stripping (mandatory)
+          find dist -type f \( -name "*.jpg" -o -name "*.jpeg" -o -name "*.png" \) -exec exiftool -all= {} \;
+          
+          # SVG sanitization (mandatory)
+          for svg in $(find dist -name "*.svg"); do
+            # Remove all script elements and event handlers
+            sed -i 's/<script[^>]*>.*<\/script>//gi' "$svg"
+            sed -i 's/on[a-z]*="[^"]*"//gi' "$svg"
+            sed -i 's/javascript:[^"]*//gi' "$svg"
+            
+            # Fail if any scripts remain
+            if grep -qi "script\|javascript:\|on[a-z]*=" "$svg"; then
+              echo "ERROR: SVG contains scripts after sanitization: $svg"
+              exit 1
+            fi
+          done
+          
+          # PDF flattening (if any)
+          for pdf in $(find dist -name "*.pdf" 2>/dev/null); do
+            # Convert to image and back to remove all active content
+            convert -density 150 "$pdf" "${pdf%.pdf}-flat.png"
+            convert "${pdf%.pdf}-flat.png" "$pdf"
+            rm "${pdf%.pdf}-flat.png"
+          done
+          
+          echo "✓ Content sanitization complete"
+          
+      - name: No-JS enforcement
+        run: |
+          ./scripts/no-js-enforcer.sh dist
+          
+      - name: Generate manifest with SHA-256
+        run: |
+          echo "Generating signed manifest..."
+          
+          # Generate manifest
+          find dist -type f -exec sha256sum {} \; | sed 's|dist/||' > dist/manifest.sha256
+          
+          # Sign manifest
+          echo "${{ secrets.SIGNING_KEY }}" | base64 -d > signing.key
+          openssl dgst -sha256 -sign signing.key -out dist/manifest.sig dist/manifest.sha256
+          rm signing.key
+          
+          # Generate verification script
+          cat > dist/verify.sh << 'EOF'
+          #!/bin/bash
+          sha256sum -c manifest.sha256 || exit 1
+          echo "✓ All files verified"
+          EOF
+          chmod +x dist/verify.sh
+          
+      - name: Create SBOM
+        run: |
+          # Generate SBOM without network access
+          syft dir:dist -o spdx-json > dist/sbom.spdx.json
+          syft dir:dist -o cyclonedx-json > dist/sbom.cyclonedx.json
+          
+      - name: Upload artifacts
+        uses: actions/upload-artifact@6f51ac03b9356f520e9adb1b1b7802705f340c2b # v4
+        with:
+          name: hermetic-build-${{ github.sha }}
+          path: |
+            dist/
+            dist/manifest.sha256
+            dist/manifest.sig
+            dist/sbom.*.json
+          retention-days: 90
+          
+  verify-build:
+    name: Verify Hermetic Build
+    needs: hermetic-build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 # v4
+        with:
+          name: hermetic-build-${{ github.sha }}
+          path: dist/
+          
+      - name: Verify manifest
+        run: |
+          cd dist
+          sha256sum -c manifest.sha256 || exit 1
+          echo "✓ Manifest verification passed"
+          
+      - name: Verify no JavaScript
+        run: |
+          if find dist -name "*.js" -o -name "*.mjs" | grep -q .; then
+            echo "ERROR: JavaScript files found"
+            exit 1
+          fi
+          
+          if grep -r "<script\|javascript:\|on[a-z]*=" dist --include="*.html"; then
+            echo "ERROR: JavaScript detected in HTML"
+            exit 1
+          fi
+          
+          echo "✓ No JavaScript verification passed"
+          
+      - name: Verify headers in files
+        run: |
+          # Check that CSP headers are embedded in HTML
+          for html in $(find dist -name "*.html"); do
+            if ! grep -q "Content-Security-Policy" "$html"; then
+              echo "WARNING: No CSP meta tag in $html"
+            fi
+          done
+          
+          echo "✓ Header verification complete"
