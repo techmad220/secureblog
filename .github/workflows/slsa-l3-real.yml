@@ -167,7 +167,7 @@ jobs:
           echo "✓ Generated hashes for $(jq length subjects.json) artifacts"
           
       - name: Create GitHub Attestations
-        uses: actions/attest-build-provenance@ef244123eb79f2f7a7e75d99086184180e6d0018 # v1
+        uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v1
         with:
           subject-path: |
             dist.tar.gz
