@@ -1,0 +1,39 @@
+# Cloudflare Worker Configuration for GET/HEAD-only Enforcement
+name = "secureblog-edge-guard"
+main = "get-head-only-worker.js"
+compatibility_date = "2024-01-01"
+compatibility_flags = ["nodejs_compat"]
+
+# Memory and CPU limits (minimal)
+[vars]
+MAX_RESPONSE_SIZE = "1024"
+RATE_LIMIT_REQUESTS = "100"
+RATE_LIMIT_WINDOW = "60000"
+
+# Routes - only for specific paths if needed
+[[routes]]
+pattern = "secureblog.example.com/*"
+zone_name = "example.com"
+
+# Environment-specific settings
+[env.production]
+name = "secureblog-edge-guard-prod"
+vars = { ENVIRONMENT = "production" }
+
+[env.staging]
+name = "secureblog-edge-guard-staging"
+vars = { ENVIRONMENT = "staging" }
+
+# Minimal build configuration
+[build]
+command = ""
+cwd = "."
+watch_dir = "."
+
+# Deploy settings
+[triggers]
+crons = []
+
+# Limits
+[limits]
+cpu_ms = 50  # Maximum 50ms CPU time per request

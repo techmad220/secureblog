@@ -14,8 +14,8 @@ jobs:
     if: ${{ github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@1e31de5234b664ca3f0ed09e5ce0d6de0c5d0fc1 # actions/checkout@v4
+      - uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 # actions/download-artifact@v4
         with:
           name: site
           path: dist
@@ -23,7 +23,7 @@ jobs:
         run: tar -C dist -czf dist.tar.gz .
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@6f51ac03b9356f520e9adb1b1b7802705f340c2b # actions/upload-artifact@v4
         with:
           name: dist-tarball
           path: dist.tar.gz
@@ -36,7 +36,7 @@ jobs:
       contents: write
       id-token: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 # actions/download-artifact@v4
         with:
           name: dist-tarball
           path: .

@@ -14,9 +14,9 @@ jobs:
   build-and-scan:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@1e31de5234b664ca3f0ed09e5ce0d6de0c5d0fc1 # actions/checkout@v4
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@41dfa10bad2bb2ae585af6ee5bb4d7d973ad74ed # actions/setup-go@v5
         with:
           go-version-file: go.mod
 
@@ -65,7 +65,7 @@ jobs:
           find dist -type f -name '*.html' -print0 | xargs -0 -n1 tidy -q -e
 
       - name: Upload built site
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@6f51ac03b9356f520e9adb1b1b7802705f340c2b # actions/upload-artifact@v4
         with:
           name: site
           path: dist

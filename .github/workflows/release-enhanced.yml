@@ -23,21 +23,21 @@ jobs:
     
     steps:
       - name: Harden Runner
-        uses: step-security/harden-runner@v2
+        uses: step-security/harden-runner@91182cccc01eb5e619899d80e4e971d6181294a7 # step-security/harden-runner@v2
         with:
           egress-policy: audit
           
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@1e31de5234b664ca3f0ed09e5ce0d6de0c5d0fc1 # actions/checkout@v4
         with:
           fetch-depth: 0
           
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@41dfa10bad2bb2ae585af6ee5bb4d7d973ad74ed # actions/setup-go@v5
         with:
           go-version: "1.23.x"
           check-latest: true
           
       - name: Install cosign
-        uses: sigstore/cosign-installer@v3
+        uses: sigstore/cosign-installer@dc72c7d5c4d10cd6bcb8cf6e3fd625a9e5e537da # sigstore/cosign-installer@v3
         
       - name: Secure build (sandboxed)
         run: bash ./build-sandbox.sh
@@ -90,7 +90,7 @@ jobs:
             dist.tgz
             
       - name: Generate SBOM (SPDX)
-        uses: anchore/sbom-action@v0
+        uses: anchore/sbom-action@fc46e51fd3cb168ffb36ec72c5bcf7e3e52b3b91 # anchore/sbom-action@v0
         with:
           path: ./dist
           artifact-name: sbom.spdx.json
@@ -192,7 +192,7 @@ jobs:
           EOF
           
       - name: Create GitHub release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@e7a8f85e1c69a9ca6ba914d1d0e05ba8254ed7eb # softprops/action-gh-release@v2
         with:
           body_path: RELEASE_NOTES.md
           files: |
@@ -209,7 +209,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           
       - name: Attest build provenance (SLSA)
-        uses: actions/attest-build-provenance@v1
+        uses: actions/attest-build-provenance@ef244123eb79f2f7a7e75d99086184180e6d0018 # actions/attest-build-provenance@v1
         with:
           subject-path: |
             dist.tgz
@@ -231,12 +231,12 @@ jobs:
       
     steps:
       - name: Harden Runner
-        uses: step-security/harden-runner@v2
+        uses: step-security/harden-runner@91182cccc01eb5e619899d80e4e971d6181294a7 # step-security/harden-runner@v2
         with:
           egress-policy: audit
           
       - name: Install cosign
-        uses: sigstore/cosign-installer@v3
+        uses: sigstore/cosign-installer@dc72c7d5c4d10cd6bcb8cf6e3fd625a9e5e537da # sigstore/cosign-installer@v3
         
       - name: Download and verify release
         run: |

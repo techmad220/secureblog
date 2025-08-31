@@ -15,17 +15,17 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Harden Runner
-        uses: step-security/harden-runner@v2
+        uses: step-security/harden-runner@91182cccc01eb5e619899d80e4e971d6181294a7 # step-security/harden-runner@v2
         with:
           egress-policy: audit
           
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@1e31de5234b664ca3f0ed09e5ce0d6de0c5d0fc1 # actions/checkout@v4
         with:
           fetch-depth: 0
           
       - name: Setup Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@41dfa10bad2bb2ae585af6ee5bb4d7d973ad74ed # actions/setup-go@v5
         with:
           go-version: '1.23'
           
@@ -231,7 +231,7 @@ jobs:
           EOF
           
       - name: Create GitHub release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@e7a8f85e1c69a9ca6ba914d1d0e05ba8254ed7eb # softprops/action-gh-release@v2
         with:
           name: SecureBlog ${{ github.ref_name }}
           body_path: RELEASE_NOTES.md
@@ -252,7 +252,7 @@ jobs:
           generate_release_notes: false
           
       - name: Attest build provenance
-        uses: actions/attest-build-provenance@v1
+        uses: actions/attest-build-provenance@ef244123eb79f2f7a7e75d99086184180e6d0018 # actions/attest-build-provenance@v1
         with:
           subject-path: |
             secureblog-${{ github.ref_name }}.tar.gz

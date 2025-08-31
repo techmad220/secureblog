@@ -6,12 +6,15 @@ on:
   pull_request:
     branches: [main]
 
+permissions:
+  contents: read
+
 jobs:
   test:
     runs-on: ubuntu-latest
     
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@1e31de5234b664ca3f0ed09e5ce0d6de0c5d0fc1 # actions/checkout@v4
     
     - name: Set up Go
       uses: actions/setup-go@v4

@@ -16,17 +16,17 @@ jobs:
       digests: ${{ steps.hash.outputs.digests }}
     steps:
       - name: Harden Runner
-        uses: step-security/harden-runner@v2
+        uses: step-security/harden-runner@91182cccc01eb5e619899d80e4e971d6181294a7 # step-security/harden-runner@v2
         with:
           egress-policy: audit
           
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@1e31de5234b664ca3f0ed09e5ce0d6de0c5d0fc1 # actions/checkout@v4
         with:
           fetch-depth: 0
           
       - name: Setup Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@41dfa10bad2bb2ae585af6ee5bb4d7d973ad74ed # actions/setup-go@v5
         with:
           go-version: '1.23'
           
@@ -53,7 +53,7 @@ jobs:
           echo "digests=$(sha256sum dist.tar.gz | base64 -w0)" >> "$GITHUB_OUTPUT"
           
       - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@6f51ac03b9356f520e9adb1b1b7802705f340c2b # actions/upload-artifact@v4
         with:
           name: dist-artifacts
           path: |
@@ -67,7 +67,7 @@ jobs:
       actions: read
       id-token: write
       contents: write
-    uses: slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@v2.0.0
+    uses: slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@5a775b367a56d5bd118a224a811bba288150a563 # slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@v2.0.0
     with:
       base64-subjects: "${{ needs.build.outputs.digests }}"
       upload-assets: true
@@ -79,15 +79,15 @@ jobs:
       contents: read
     steps:
       - name: Install SLSA verifier
-        uses: slsa-framework/slsa-verifier/actions/installer@v2.6.0
+        uses: slsa-framework/slsa-verifier/actions/installer@3714a2a4684014deb874a0e737dffa0ee02dd647 # slsa-framework/slsa-verifier/actions/installer@v2.6.0
         
       - name: Download artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 # actions/download-artifact@v4
         with:
           name: dist-artifacts
           
       - name: Download provenance
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 # actions/download-artifact@v4
         with:
           name: ${{ needs.provenance.outputs.provenance-name }}
           

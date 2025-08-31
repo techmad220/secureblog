@@ -1,8 +1,123 @@
+# Dependabot Configuration for SecureBlog
+# Automatic dependency updates with security-focused settings
+
 version: 2
 updates:
+  # GitHub Actions dependencies
   - package-ecosystem: "github-actions"
     directory: "/"
-    schedule: { interval: "daily" }
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "UTC"
+    open-pull-requests-limit: 5
+    reviewers:
+      - "@techmad"
+    assignees:
+      - "@techmad"
+    commit-message:
+      prefix: "security"
+      include: "scope"
+    labels:
+      - "security"
+      - "dependencies"
+      - "github-actions"
+    # Only security updates - minimize noise
+    target-branch: "main"
+    allow:
+      - dependency-type: "direct"
+        update-type: "security"
+      - dependency-type: "indirect"  
+        update-type: "security"
+    ignore:
+      # Ignore patch updates unless security-related
+      - dependency-name: "*"
+        update-types: ["version-update:semver-patch"]
+    # Auto-merge security updates after CI passes
+    enable-beta-ecosystems: false
+
+  # Go dependencies (if any)
   - package-ecosystem: "gomod"
     directory: "/"
-    schedule: { interval: "daily" }
+    schedule:
+      interval: "weekly"
+      day: "tuesday"  
+      time: "09:00"
+      timezone: "UTC"
+    open-pull-requests-limit: 3
+    reviewers:
+      - "@techmad"
+    assignees:
+      - "@techmad"
+    commit-message:
+      prefix: "security"
+      include: "scope"
+    labels:
+      - "security"
+      - "dependencies"
+      - "golang"
+    target-branch: "main"
+    allow:
+      - dependency-type: "direct"
+        update-type: "security"
+      - dependency-type: "indirect"
+        update-type: "security"
+    ignore:
+      # Only security updates
+      - dependency-name: "*"
+        update-types: ["version-update:semver-patch", "version-update:semver-minor"]
+
+  # Docker dependencies (if any Dockerfiles)
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "wednesday"
+      time: "09:00" 
+      timezone: "UTC"
+    open-pull-requests-limit: 2
+    reviewers:
+      - "@techmad"
+    assignees:
+      - "@techmad"
+    commit-message:
+      prefix: "security"
+      include: "scope"
+    labels:
+      - "security"
+      - "dependencies"
+      - "docker"
+    target-branch: "main"
+    allow:
+      - dependency-type: "direct"
+        update-type: "security"
+
+  # Terraform dependencies (Cloudflare provider, etc.)
+  - package-ecosystem: "terraform"
+    directory: "/cloudflare"
+    schedule:
+      interval: "weekly"
+      day: "thursday"
+      time: "09:00"
+      timezone: "UTC"
+    open-pull-requests-limit: 2
+    reviewers:
+      - "@techmad"
+    assignees:
+      - "@techmad"
+    commit-message:
+      prefix: "security"
+      include: "scope"
+    labels:
+      - "security"
+      - "dependencies"
+      - "terraform"
+      - "cloudflare"
+    target-branch: "main"
+    allow:
+      - dependency-type: "direct"
+        update-type: "security"
+      # Allow minor updates for Terraform providers as they often include important fixes
+      - dependency-type: "direct"
+        update-type: "version-update:semver-minor"

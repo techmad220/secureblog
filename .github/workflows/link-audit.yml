@@ -12,7 +12,7 @@ jobs:
   link-audit:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@1e31de5234b664ca3f0ed09e5ce0d6de0c5d0fc1 # actions/checkout@v4
 
       # Build with your hardened makefile
       - name: Secure build
@@ -24,7 +24,7 @@ jobs:
 
       - name: Upload audit log
         if: ${{ always() }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@6f51ac03b9356f520e9adb1b1b7802705f340c2b # actions/upload-artifact@v4
         with:
           name: link-audit
           path: link-audit.txt

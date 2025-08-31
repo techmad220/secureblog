@@ -14,10 +14,10 @@ jobs:
   dependency-check:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@1e31de5234b664ca3f0ed09e5ce0d6de0c5d0fc1 # actions/checkout@v4
       
       - name: Setup Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@41dfa10bad2bb2ae585af6ee5bb4d7d973ad74ed # actions/setup-go@v5
         with:
           go-version: "1.22.x"
           
@@ -42,7 +42,7 @@ jobs:
           bom generate -o sbom.json --format json .
           
       - name: Upload SBOM
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@6f51ac03b9356f520e9adb1b1b7802705f340c2b # actions/upload-artifact@v4
         with:
           name: sbom
           path: sbom.json
@@ -56,7 +56,7 @@ jobs:
       actions: read
       
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@1e31de5234b664ca3f0ed09e5ce0d6de0c5d0fc1 # actions/checkout@v4
         with:
           persist-credentials: false
           
@@ -68,7 +68,7 @@ jobs:
           publish_results: true
           
       - name: Upload Scorecard results
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@6f51ac03b9356f520e9adb1b1b7802705f340c2b # actions/upload-artifact@v4
         with:
           name: scorecard-results
           path: scorecard.json
@@ -77,7 +77,7 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@1e31de5234b664ca3f0ed09e5ce0d6de0c5d0fc1 # actions/checkout@v4
       
       - name: Check branch protection
         env:
@@ -104,7 +104,7 @@ jobs:
   pin-dependencies:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@1e31de5234b664ca3f0ed09e5ce0d6de0c5d0fc1 # actions/checkout@v4
       
       - name: Check action pinning
         run: |
@@ -127,7 +127,7 @@ jobs:
   template-security:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@1e31de5234b664ca3f0ed09e5ce0d6de0c5d0fc1 # actions/checkout@v4
       
       - name: Scan templates for JavaScript
         run: |
