@@ -1,0 +1,61 @@
+# GitHub Actions Allow-List - Only these actions are permitted
+# This enforces SHA-pinning and prevents supply chain attacks
+# Reference: https://docs.github.com/en/enterprise-cloud@latest/organizations/managing-organization-settings/disabling-or-limiting-github-actions-for-your-organization
+
+github_owned_allowed:
+  # Core GitHub Actions (trusted)
+  - actions/checkout
+  - actions/setup-go
+  - actions/setup-node
+  - actions/cache
+  - actions/upload-artifact
+  - actions/download-artifact
+  - actions/github-script
+
+verified_creators_allowed:
+  # Security-focused actions from verified creators
+  - github/codeql-action
+  - sigstore/cosign-installer
+  - slsa-framework/slsa-github-generator
+  - gitleaks/gitleaks-action
+  - golang/govulncheck-action
+  - dominikh/staticcheck-action
+  - aquasecurity/trivy-action
+  - aws-actions/configure-aws-credentials
+  - softprops/action-gh-release
+
+# All actions MUST be pinned to full SHA (not tags/branches)
+# Example: uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.2.2
+
+prohibited_patterns:
+  # These patterns are NEVER allowed
+  - "uses: */.*@v"        # No tag references
+  - "uses: */.*@main"     # No branch references  
+  - "uses: */.*@master"   # No branch references
+  - "uses: */.*@latest"   # No latest references
+  - "uses: docker://"     # No direct docker images
+  - "run: curl.*|.*sh"    # No curl-pipe-to-shell
+  - "run: wget.*|.*sh"    # No wget-pipe-to-shell
+
+enforcement:
+  # Organization-level settings to configure
+  github_actions_permissions: "allowed_actions"
+  allowed_actions: "selected"  # Only allow-listed actions
+  default_workflow_permissions: "read"  # Read-only GITHUB_TOKEN by default
+  can_approve_pull_request_reviews: false  # Prevent self-approval
+
+# SHA Validation Rules
+sha_validation:
+  min_sha_length: 40  # Full SHA required, not abbreviated
+  require_comment: true  # Must include version comment like # v4.2.2
+  
+# Example of properly pinned actions:
+examples:
+  good:
+    - "uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.2.2"
+    - "uses: actions/setup-go@41dfa10bad2bb2ae585af6ee5bb4d7d973ad74ed # v5.1.0"
+  
+  bad:
+    - "uses: actions/checkout@v4"
+    - "uses: actions/setup-go@main"
+    - "uses: some-random/action@latest"

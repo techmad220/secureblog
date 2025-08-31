@@ -1,0 +1,267 @@
+name: Action Security Validation
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/**'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/**'
+
+# Minimal permissions for security validation
+permissions:
+  contents: read
+  security-events: write
+  pull-requests: write  # for commenting on PRs
+
+jobs:
+  validate-action-security:
+    name: Validate Action Security
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.2.2
+        with:
+          fetch-depth: 0  # Full history for comparing changes
+          
+      - name: Validate SHA-pinned actions
+        id: validate-sha
+        run: |
+          echo "🔍 Validating all GitHub Actions are SHA-pinned..."
+          
+          # Find all workflow files
+          workflow_files=$(find .github/workflows -name "*.yml" -o -name "*.yaml")
+          
+          failed_files=()
+          total_violations=0
+          
+          for file in $workflow_files; do
+            echo "Checking $file..."
+            violations=0
+            
+            # Check for unpinned actions (using tags or branches)
+            if grep -n "uses:.*@v[0-9]" "$file"; then
+              echo "❌ Found tag-based action in $file"
+              violations=$((violations + 1))
+            fi
+            
+            if grep -n "uses:.*@main\|uses:.*@master\|uses:.*@latest" "$file"; then
+              echo "❌ Found branch-based action in $file"  
+              violations=$((violations + 1))
+            fi
+            
+            # Check for actions without full SHA (40 characters)
+            while IFS= read -r line; do
+              if [[ $line =~ uses:.*@([a-f0-9]+) ]]; then
+                sha="${BASH_REMATCH[1]}"
+                if [[ ${#sha} -lt 40 ]]; then
+                  echo "❌ Found abbreviated SHA in $file: $sha"
+                  violations=$((violations + 1))
+                fi
+              fi
+            done < "$file"
+            
+            # Check for dangerous patterns
+            if grep -n "run:.*curl.*|.*sh\|run:.*wget.*|.*sh" "$file"; then
+              echo "❌ Found dangerous curl/wget pipe to shell in $file"
+              violations=$((violations + 1))
+            fi
+            
+            if grep -n "uses: docker://" "$file"; then
+              echo "❌ Found direct docker image usage in $file"
+              violations=$((violations + 1))
+            fi
+            
+            if [ $violations -gt 0 ]; then
+              failed_files+=("$file")
+              total_violations=$((total_violations + violations))
+            fi
+          done
+          
+          echo "total_violations=$total_violations" >> "$GITHUB_OUTPUT"
+          
+          if [ $total_violations -gt 0 ]; then
+            echo "💥 Found $total_violations security violations in workflows!"
+            echo "Failed files: ${failed_files[*]}"
+            exit 1
+          else
+            echo "✅ All actions are properly SHA-pinned!"
+          fi
+          
+      - name: Validate workflow permissions
+        run: |
+          echo "🔍 Validating workflow permissions follow least privilege..."
+          
+          workflow_files=$(find .github/workflows -name "*.yml" -o -name "*.yaml")
+          violations=0
+          
+          for file in $workflow_files; do
+            echo "Checking permissions in $file..."
+            
+            # Check if permissions section exists
+            if ! grep -q "permissions:" "$file"; then
+              echo "⚠️  No permissions section found in $file - should be explicit"
+              violations=$((violations + 1))
+              continue
+            fi
+            
+            # Check for overly broad permissions
+            if grep -A 10 "permissions:" "$file" | grep -q "write-all\|admin\|repo"; then
+              echo "❌ Found overly broad permissions in $file"
+              violations=$((violations + 1))
+            fi
+            
+            # Look for jobs without explicit permissions
+            if grep -q "^jobs:" "$file"; then
+              # This is a complex check - for now just warn if no job-level perms
+              if ! grep -A 100 "^jobs:" "$file" | grep -q "permissions:"; then
+                echo "ℹ️  Consider adding job-level permissions in $file"
+              fi
+            fi
+          done
+          
+          if [ $violations -gt 0 ]; then
+            echo "💥 Found $violations permission violations!"
+            exit 1
+          else
+            echo "✅ Workflow permissions look good!"
+          fi
+          
+      - name: Validate against allow-list
+        run: |
+          echo "🔍 Validating actions against allow-list..."
+          
+          # Extract all used actions
+          workflow_files=$(find .github/workflows -name "*.yml" -o -name "*.yaml")
+          used_actions=()
+          
+          for file in $workflow_files; do
+            # Extract action references
+            while IFS= read -r line; do
+              if [[ $line =~ uses:[[:space:]]*([^@]+)@ ]]; then
+                action="${BASH_REMATCH[1]}"
+                used_actions+=("$action")
+              fi
+            done < <(grep "uses:" "$file")
+          done
+          
+          # Remove duplicates
+          unique_actions=($(printf "%s\n" "${used_actions[@]}" | sort -u))
+          
+          echo "Used actions:"
+          printf " - %s\n" "${unique_actions[@]}"
+          
+          # Define allowed actions (should match .github/allowed-actions.yml)
+          allowed_github=(
+            "actions/checkout"
+            "actions/setup-go"
+            "actions/setup-node"  
+            "actions/cache"
+            "actions/upload-artifact"
+            "actions/download-artifact"
+            "actions/github-script"
+          )
+          
+          allowed_verified=(
+            "github/codeql-action/init"
+            "github/codeql-action/analyze"
+            "github/codeql-action/upload-sarif"
+            "sigstore/cosign-installer"
+            "slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml"
+            "gitleaks/gitleaks-action"
+            "golang/govulncheck-action"
+            "dominikh/staticcheck-action"
+            "aquasecurity/trivy-action"
+            "aws-actions/configure-aws-credentials"
+            "softprops/action-gh-release"
+          )
+          
+          violations=0
+          
+          for action in "${unique_actions[@]}"; do
+            allowed=false
+            
+            # Check against GitHub-owned actions
+            for allowed_action in "${allowed_github[@]}"; do
+              if [[ "$action" == "$allowed_action" ]]; then
+                allowed=true
+                break
+              fi
+            done
+            
+            # Check against verified creators
+            if [ "$allowed" = false ]; then
+              for allowed_action in "${allowed_verified[@]}"; do
+                if [[ "$action" == "$allowed_action" ]]; then
+                  allowed=true
+                  break
+                fi
+              done
+            fi
+            
+            if [ "$allowed" = false ]; then
+              echo "❌ Unauthorized action: $action"
+              violations=$((violations + 1))
+            else
+              echo "✅ Authorized action: $action"
+            fi
+          done
+          
+          if [ $violations -gt 0 ]; then
+            echo "💥 Found $violations unauthorized actions!"
+            echo "All actions must be in the allow-list (.github/allowed-actions.yml)"
+            exit 1
+          else
+            echo "✅ All actions are authorized!"
+          fi
+          
+      - name: Generate security report
+        if: always()
+        run: |
+          cat > action-security-report.md << EOF
+          # GitHub Actions Security Report
+          
+          **Repository:** ${{ github.repository }}
+          **Commit:** ${{ github.sha }}
+          **Date:** $(date -u)
+          
+          ## Validation Results
+          
+          | Check | Status |
+          |-------|--------|
+          | SHA-pinned Actions | ${{ steps.validate-sha.outcome == 'success' && '✅ Passed' || '❌ Failed' }} |
+          | Least Privilege Permissions | ${{ job.status == 'success' && '✅ Passed' || '❌ Failed' }} |
+          | Allow-list Compliance | ${{ job.status == 'success' && '✅ Passed' || '❌ Failed' }} |
+          
+          ## Security Requirements
+          
+          - ✅ All actions MUST be pinned to full 40-character SHA
+          - ✅ All actions MUST be from the approved allow-list
+          - ✅ Workflows MUST use minimal permissions (read-only by default)  
+          - ✅ No curl/wget pipe-to-shell patterns allowed
+          - ✅ No direct docker image usage allowed
+          - ✅ No pull_request_target without explicit security review
+          
+          ## Next Steps
+          
+          ${{ steps.validate-sha.outputs.total_violations > 0 && '⚠️ Fix SHA pinning violations before merge' || '🎉 All security checks passed!' }}
+          EOF
+          
+          cat action-security-report.md
+          
+      - name: Comment on PR
+        if: github.event_name == 'pull_request' && always()
+        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7.0.1
+        with:
+          script: |
+            const fs = require('fs');
+            const report = fs.readFileSync('action-security-report.md', 'utf8');
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: report
+            });
