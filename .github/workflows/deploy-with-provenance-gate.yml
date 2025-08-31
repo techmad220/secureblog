@@ -1,0 +1,221 @@
+name: Deploy with Provenance Gate
+on:
+  push:
+    branches: [ "main" ]
+
+permissions:
+  contents: read
+  id-token: write
+  attestations: write
+  deployments: write
+
+jobs:
+  build-verify-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@91182cccc01eb5e619899d80e4e971d6181294a7 # v2
+        with:
+          egress-policy: audit
+
+      - name: Checkout repository
+        uses: actions/checkout@1e31de5234b664ca3f0ed09e5ce0d6de0c5d0fc1 # v4
+        with:
+          persist-credentials: false
+
+      # Build static site using sandboxed build script
+      - name: Build (sandboxed)
+        run: |
+          echo "Starting sandboxed build..."
+          bash ./build-sandbox.sh
+          echo "Build completed. Verifying output..."
+          ls -la dist/
+          
+          # Verify critical files exist
+          if [ ! -f "dist/index.html" ]; then
+            echo "ERROR: dist/index.html not found"
+            exit 1
+          fi
+          
+          echo "Build verification passed"
+
+      # Run comprehensive security checks before attestation
+      - name: Pre-attestation security validation
+        run: |
+          echo "Running security validation before attestation..."
+          
+          # Ensure no JavaScript in build output
+          if bash .scripts/security-regression-guard.sh dist; then
+            echo "✓ Security regression guard passed"
+          else
+            echo "✗ Security regression guard failed - blocking deployment"
+            exit 1
+          fi
+          
+          # Verify build integrity
+          if bash scripts/integrity-verify.sh dist; then
+            echo "✓ Build integrity verified"
+          else
+            echo "✗ Build integrity check failed - blocking deployment"
+            exit 1
+          fi
+          
+          echo "All pre-attestation security checks passed"
+
+      # Generate GitHub Artifact Attestations (SLSA predicate) for all site files
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@310b0a4a3b0b78ef57ecda988ee04b132db73ef8 # v1
+        with:
+          subject-path: "dist/**"
+
+      # CRITICAL: Verify the attestation before deploying
+      # This is the enforcement gate - deployment fails if attestation is invalid
+      - name: Verify attestation for canonical subjects
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          echo "Verifying GitHub Artifact Attestations..."
+          
+          # Verify attestation for critical files (fail fast if provenance/signing doesn't match)
+          echo "Verifying index.html attestation..."
+          if ! gh attestation verify dist/index.html -R techmad220/secureblog; then
+            echo "✗ CRITICAL: Attestation verification failed for dist/index.html"
+            echo "This indicates compromised build artifacts or missing provenance"
+            exit 1
+          fi
+          echo "✓ index.html attestation verified"
+          
+          # Verify additional critical files if they exist
+          if [ -f "dist/about/index.html" ]; then
+            echo "Verifying about page attestation..."
+            if ! gh attestation verify dist/about/index.html -R techmad220/secureblog; then
+              echo "✗ CRITICAL: Attestation verification failed for about page"
+              exit 1
+            fi
+            echo "✓ About page attestation verified"
+          fi
+          
+          # Verify CSS files (if any)
+          for css_file in dist/**/*.css; do
+            if [ -f "$css_file" ]; then
+              echo "Verifying CSS file attestation: $css_file"
+              if ! gh attestation verify "$css_file" -R techmad220/secureblog; then
+                echo "✗ CRITICAL: Attestation verification failed for $css_file"
+                exit 1
+              fi
+              echo "✓ CSS file attestation verified: $css_file"
+            fi
+          done
+          
+          echo "✅ ALL ATTESTATION VERIFICATIONS PASSED"
+          echo "Build artifacts have valid GitHub SLSA provenance"
+
+      # Additional supply chain verification
+      - name: Verify complete supply chain
+        run: |
+          echo "Running complete supply chain verification..."
+          
+          # Verify Go module integrity
+          go mod verify
+          if [ $? -ne 0 ]; then
+            echo "✗ Go module integrity check failed"
+            exit 1
+          fi
+          echo "✓ Go modules verified"
+          
+          # Check for vulnerabilities
+          go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+          if [ $? -ne 0 ]; then
+            echo "✗ Vulnerability scan failed"
+            exit 1
+          fi
+          echo "✓ No vulnerabilities found"
+          
+          echo "✅ Supply chain verification complete"
+
+      # Final pre-deployment validation
+      - name: Final deployment gate
+        run: |
+          echo "Running final deployment gate checks..."
+          
+          # Verify dist directory structure
+          if [ ! -d "dist" ]; then
+            echo "✗ dist directory missing"
+            exit 1
+          fi
+          
+          # Ensure minimum required files
+          required_files=("dist/index.html")
+          for file in "${required_files[@]}"; do
+            if [ ! -f "$file" ]; then
+              echo "✗ Required file missing: $file"
+              exit 1
+            fi
+            echo "✓ Required file exists: $file"
+          done
+          
+          # Verify file sizes are reasonable (not empty, not suspiciously large)
+          for html_file in dist/**/*.html; do
+            if [ -f "$html_file" ]; then
+              size=$(stat -f%z "$html_file" 2>/dev/null || stat -c%s "$html_file")
+              if [ "$size" -lt 10 ]; then
+                echo "✗ HTML file suspiciously small: $html_file ($size bytes)"
+                exit 1
+              fi
+              if [ "$size" -gt 1048576 ]; then  # 1MB
+                echo "✗ HTML file suspiciously large: $html_file ($size bytes)"
+                exit 1
+              fi
+            fi
+          done
+          
+          echo "✅ Final deployment gate passed"
+
+      # Deploy ONLY if all verifications passed
+      - name: Deploy to Cloudflare Pages
+        uses: cloudflare/pages-action@f0a1cd58cd66095dee69bfa18fa5efd1dde93bca # v1
+        with:
+          apiToken: ${{ secrets.CF_API_TOKEN }}
+          accountId: ${{ secrets.CF_ACCOUNT_ID }}
+          projectName: secureblog
+          directory: dist
+          wranglerVersion: '3'
+
+      # Post-deployment verification
+      - name: Post-deployment verification
+        run: |
+          echo "Performing post-deployment verification..."
+          sleep 10  # Allow deployment to propagate
+          
+          # Test the deployed site (if URL is available)
+          if [ -n "${{ vars.SITE_URL }}" ]; then
+            echo "Testing deployed site: ${{ vars.SITE_URL }}"
+            
+            # Check that the site returns 200
+            if curl -s -o /dev/null -w "%{http_code}" "${{ vars.SITE_URL }}" | grep -q "200"; then
+              echo "✓ Site is accessible"
+            else
+              echo "✗ Site is not accessible - deployment may have failed"
+              exit 1
+            fi
+            
+            # Verify security headers
+            if curl -I -s "${{ vars.SITE_URL }}" | grep -q "Content-Security-Policy"; then
+              echo "✓ Security headers present"
+            else
+              echo "✗ Security headers missing"
+              exit 1
+            fi
+          fi
+          
+          echo "✅ Post-deployment verification complete"
+
+      # Notify on success
+      - name: Deployment success notification
+        run: |
+          echo "🎉 DEPLOYMENT SUCCESSFUL"
+          echo "✅ Provenance-gated deployment completed"
+          echo "✅ All attestations verified"
+          echo "✅ Supply chain validated" 
+          echo "✅ Security checks passed"
+          echo "✅ Site deployed and verified"
