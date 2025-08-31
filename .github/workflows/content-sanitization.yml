@@ -1,0 +1,220 @@
+name: Content Sanitization
+on:
+  push:
+    branches: [ "main" ]
+    paths: 
+      - 'content/**'
+      - 'templates/**'
+      - 'scripts/strict-markdown-sanitizer.sh'
+  pull_request:
+    branches: [ "main" ]
+    paths:
+      - 'content/**'
+      - 'templates/**'
+      - 'scripts/strict-markdown-sanitizer.sh'
+
+permissions:
+  contents: read
+
+jobs:
+  validate-no-raw-html:
+    name: Validate No Raw HTML in Markdown
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # NO write permissions - this is validation only
+    
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@91182cccc01eb5e619899d80e4e971d6181294a7 # v2
+        with:
+          egress-policy: audit
+
+      - name: Checkout repository
+        uses: actions/checkout@1e31de5234b664ca3f0ed09e5ce0d6de0c5d0fc1 # v4
+
+      - name: Set up Go
+        uses: actions/setup-go@0a12ed9d6a96ab950c8f026ed9f722fe0da7ef32 # v5
+        with:
+          go-version: '1.22'
+          check-latest: true
+
+      - name: Run strict markdown sanitization
+        run: |
+          echo "🧹 RUNNING STRICT MARKDOWN SANITIZATION"
+          echo "======================================="
+          
+          # Create output directory
+          mkdir -p dist-sanitized
+          
+          # Run the strict sanitizer
+          ./scripts/strict-markdown-sanitizer.sh content dist-sanitized
+          
+          # Check exit code
+          if [ $? -eq 0 ]; then
+            echo "✅ All content successfully sanitized"
+          else
+            echo "❌ Sanitization failed - build must be blocked"
+            exit 1
+          fi
+
+      - name: Validate sanitization report
+        run: |
+          echo "📊 VALIDATING SANITIZATION REPORT"
+          echo "================================="
+          
+          if [ -f "dist-sanitized/sanitization-report.json" ]; then
+            report_content=$(cat dist-sanitized/sanitization-report.json)
+            echo "Sanitization report:"
+            echo "$report_content" | jq '.'
+            
+            # Check for any failed files
+            failed_count=$(echo "$report_content" | jq '.summary.failed_files // 0')
+            if [ "$failed_count" -gt 0 ]; then
+              echo "❌ $failed_count files failed sanitization"
+              echo "Failed files:"
+              echo "$report_content" | jq -r '.files[] | select(.status == "failed") | .file'
+              exit 1
+            else
+              echo "✅ All files passed sanitization"
+            fi
+          else
+            echo "❌ Sanitization report not found"
+            exit 1
+          fi
+
+      - name: Verify no dangerous patterns remain
+        run: |
+          echo "🔍 VERIFYING NO DANGEROUS PATTERNS REMAIN"
+          echo "========================================"
+          
+          dangerous_patterns=(
+            "<script"
+            "<iframe"
+            "<object"
+            "<embed" 
+            "<form"
+            "javascript:"
+            "vbscript:"
+            "onload="
+            "onclick="
+            "onmouseover="
+            "expression("
+            "@import"
+            "data:text/html"
+            "data:text/javascript"
+          )
+          
+          violations=0
+          for pattern in "${dangerous_patterns[@]}"; do
+            echo "Checking for pattern: $pattern"
+            
+            if find dist-sanitized -name "*.md" -exec grep -il "$pattern" {} \; 2>/dev/null | head -1 > /dev/null; then
+              echo "  ✗ Dangerous pattern found: $pattern"
+              find dist-sanitized -name "*.md" -exec grep -il "$pattern" {} \; | head -5
+              violations=$((violations + 1))
+            else
+              echo "  ✓ Pattern not found: $pattern"
+            fi
+          done
+          
+          if [ $violations -gt 0 ]; then
+            echo
+            echo "❌ $violations DANGEROUS PATTERNS FOUND"
+            echo "Content is not safe for publication"
+            exit 1
+          else
+            echo
+            echo "✅ NO DANGEROUS PATTERNS FOUND"
+            echo "Content is safe for publication"
+          fi
+
+      - name: Upload sanitization artifacts
+        uses: actions/upload-artifact@1ba91c08ce7f4db2fe1e6c0a66fdd4e35d8d0e7a # v4
+        with:
+          name: sanitized-content
+          path: dist-sanitized/
+          retention-days: 30
+          if-no-files-found: error
+
+  template-security-validation:
+    name: Validate Template Security
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@91182cccc01eb5e619899d80e4e971d6181294a7 # v2
+        with:
+          egress-policy: audit
+
+      - name: Checkout repository
+        uses: actions/checkout@1e31de5234b664ca3f0ed09e5ce0d6de0c5d0fc1 # v4
+
+      - name: Validate HTML templates are secure
+        run: |
+          echo "🔒 VALIDATING HTML TEMPLATE SECURITY"
+          echo "===================================="
+          
+          template_violations=0
+          
+          if [ -d "templates" ]; then
+            find templates -name "*.html" -o -name "*.htm" | while read template; do
+              echo "Checking template: $template"
+              
+              # Check for dangerous patterns in templates
+              dangerous_template_patterns=(
+                "<script"
+                "javascript:"
+                "vbscript:"
+                "on[a-z]+="
+                "expression("
+                "eval("
+                "Function("
+                "setTimeout("
+                "setInterval("
+                "document.write"
+                "innerHTML"
+                ".src.*javascript"
+                ".href.*javascript"
+              )
+              
+              for pattern in "${dangerous_template_patterns[@]}"; do
+                if grep -iE "$pattern" "$template" >/dev/null; then
+                  echo "  ✗ Dangerous pattern in template: $pattern"
+                  grep -inE "$pattern" "$template" | head -3
+                  template_violations=$((template_violations + 1))
+                fi
+              done
+              
+              # Check for external resource loading
+              if grep -E "src=.*https?://" "$template" >/dev/null; then
+                echo "  ✗ External resource loading detected:"
+                grep -inE "src=.*https?://" "$template"
+                template_violations=$((template_violations + 1))
+              fi
+              
+              if grep -E "href=.*https?://" "$template" | grep -v "rel=[\"']nofollow" >/dev/null; then
+                echo "  ⚠ External links without nofollow detected:"
+                grep -inE "href=.*https?://" "$template" | grep -v "rel=[\"']nofollow"
+              fi
+              
+              if [ $template_violations -eq 0 ]; then
+                echo "  ✓ Template is secure"
+              fi
+            done
+          else
+            echo "No templates directory found"
+          fi
+          
+          if [ $template_violations -gt 0 ]; then
+            echo
+            echo "❌ $template_violations TEMPLATE SECURITY VIOLATIONS FOUND"
+            echo "Templates contain dangerous patterns that could enable XSS"
+            exit 1
+          else
+            echo
+            echo "✅ ALL TEMPLATES ARE SECURE"
+            echo "No dangerous patterns found in HTML templates"
+          fi

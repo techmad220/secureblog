@@ -1,0 +1,239 @@
+name: Actions Security Validation
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+# CRITICAL: Default to read-only, grant specific permissions per job
+permissions:
+  contents: read
+
+jobs:
+  validate-pinned-actions:
+    name: Validate All Actions Are SHA-Pinned
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # NO other permissions granted
+    
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@91182cccc01eb5e619899d80e4e971d6181294a7 # v2
+        with:
+          egress-policy: audit
+
+      - name: Checkout repository
+        uses: actions/checkout@1e31de5234b664ca3f0ed09e5ce0d6de0c5d0fc1 # v4
+        with:
+          fetch-depth: 0  # Need full history to check all workflow files
+
+      - name: Validate all actions are SHA-pinned
+        run: |
+          echo "🔍 VALIDATING ALL GITHUB ACTIONS ARE SHA-PINNED"
+          echo "=============================================="
+          
+          UNPINNED_ACTIONS=()
+          TOTAL_ACTIONS=0
+          PINNED_ACTIONS=0
+          
+          # Find all workflow files
+          find .github/workflows -name "*.yml" -o -name "*.yaml" | while read workflow; do
+            echo "Checking workflow: $workflow"
+            
+            # Extract all uses: lines and validate SHA pinning
+            grep -n "uses:" "$workflow" | while IFS=: read -r line_num line_content; do
+              action_ref=$(echo "$line_content" | sed 's/.*uses:[[:space:]]*//' | sed 's/[[:space:]]*#.*//')
+              
+              # Skip local actions (start with ./)
+              if [[ "$action_ref" =~ ^\./ ]]; then
+                echo "  Line $line_num: Skipping local action: $action_ref"
+                continue
+              fi
+              
+              TOTAL_ACTIONS=$((TOTAL_ACTIONS + 1))
+              
+              # Check if action is pinned to SHA (40 hex characters after @)
+              if [[ "$action_ref" =~ @[a-f0-9]{40}($| ) ]]; then
+                echo "  Line $line_num: ✓ SHA-pinned: $action_ref"
+                PINNED_ACTIONS=$((PINNED_ACTIONS + 1))
+              else
+                echo "  Line $line_num: ✗ NOT SHA-PINNED: $action_ref"
+                UNPINNED_ACTIONS+=("$workflow:$line_num:$action_ref")
+              fi
+            done
+          done
+          
+          # Read the array results (need to do this outside the while loop)
+          if find .github/workflows -name "*.yml" -o -name "*.yaml" -exec grep -l "uses:" {} \; | xargs grep "uses:" | grep -v "@[a-f0-9]\{40\}" | grep -v "uses: \./" > /tmp/unpinned_actions.txt 2>/dev/null; then
+            echo
+            echo "❌ UNPINNED ACTIONS FOUND:"
+            echo "========================="
+            cat /tmp/unpinned_actions.txt
+            echo
+            echo "🔧 TO FIX:"
+            echo "Run: ./scripts/pin-actions.sh"
+            echo "This will pin all actions to their latest commit SHAs"
+            exit 1
+          else
+            echo
+            echo "✅ ALL GITHUB ACTIONS ARE SHA-PINNED"
+            echo "===================================="
+            echo "All workflow actions use 40-character commit SHAs"
+            exit 0
+          fi
+
+  validate-workflow-permissions:
+    name: Validate Workflow Permissions
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      
+    steps:
+      - name: Harden Runner 
+        uses: step-security/harden-runner@91182cccc01eb5e619899d80e4e971d6181294a7 # v2
+        with:
+          egress-policy: audit
+
+      - name: Checkout repository
+        uses: actions/checkout@1e31de5234b664ca3f0ed09e5ce0d6de0c5d0fc1 # v4
+
+      - name: Validate workflow permissions are minimal
+        run: |
+          echo "🔍 VALIDATING WORKFLOW PERMISSIONS"
+          echo "=================================="
+          
+          PERMISSION_VIOLATIONS=0
+          
+          find .github/workflows -name "*.yml" -o -name "*.yaml" | while read workflow; do
+            echo "Checking permissions in: $workflow"
+            
+            # Check if workflow has top-level permissions set to read-only
+            if ! grep -q "^permissions:" "$workflow"; then
+              echo "  ✗ No top-level permissions defined (should be 'contents: read')"
+              PERMISSION_VIOLATIONS=$((PERMISSION_VIOLATIONS + 1))
+              continue
+            fi
+            
+            # Extract permissions block
+            permissions_block=$(sed -n '/^permissions:/,/^[^ ]/p' "$workflow" | head -n -1)
+            
+            # Check for dangerous global write permissions
+            if echo "$permissions_block" | grep -E "write-all|all" | grep -v "contents: read"; then
+              echo "  ✗ Dangerous global write permissions found"
+              echo "$permissions_block" | grep -E "write-all|all"
+              PERMISSION_VIOLATIONS=$((PERMISSION_VIOLATIONS + 1))
+            fi
+            
+            # Check for overly broad permissions
+            dangerous_perms=("actions: write" "checks: write" "contents: write" "deployments: write" "issues: write" "pull-requests: write" "repository-projects: write" "security-events: write" "statuses: write")
+            
+            for perm in "${dangerous_perms[@]}"; do
+              if echo "$permissions_block" | grep -q "$perm" && ! echo "$permissions_block" | grep -A5 -B5 "$perm" | grep -q "# JUSTIFIED:"; then
+                echo "  ⚠ Potentially dangerous permission: $perm (needs justification comment)"
+              fi
+            done
+            
+            # Check for pull_request_target usage (dangerous)
+            if grep -q "pull_request_target:" "$workflow"; then
+              echo "  ✗ DANGEROUS: pull_request_target trigger found"
+              echo "    This allows code execution from forks with elevated permissions"
+              PERMISSION_VIOLATIONS=$((PERMISSION_VIOLATIONS + 1))
+            fi
+            
+            echo "  ✓ Permissions check completed"
+          done
+          
+          # Final check for pull_request_target across all workflows
+          if find .github/workflows -name "*.yml" -o -name "*.yaml" -exec grep -l "pull_request_target" {} \; 2>/dev/null | head -1 > /dev/null; then
+            echo
+            echo "❌ CRITICAL SECURITY VIOLATION:"
+            echo "==============================="
+            echo "pull_request_target found in workflows:"
+            find .github/workflows -name "*.yml" -o -name "*.yaml" -exec grep -l "pull_request_target" {} \;
+            echo
+            echo "pull_request_target allows attackers to execute code with elevated permissions"
+            echo "Replace with 'pull_request' and remove sensitive operations from PR workflows"
+            exit 1
+          fi
+          
+          echo
+          echo "✅ WORKFLOW PERMISSIONS VALIDATED"
+          echo "================================="
+          echo "All workflows follow secure permission principles"
+
+  validate-no-dangerous-patterns:
+    name: Validate No Dangerous Workflow Patterns
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@91182cccc01eb5e619899d80e4e971d6181294a7 # v2
+        with:
+          egress-policy: audit
+
+      - name: Checkout repository  
+        uses: actions/checkout@1e31de5234b664ca3f0ed09e5ce0d6de0c5d0fc1 # v4
+
+      - name: Scan for dangerous workflow patterns
+        run: |
+          echo "🔍 SCANNING FOR DANGEROUS WORKFLOW PATTERNS"
+          echo "==========================================="
+          
+          DANGEROUS_PATTERNS=0
+          
+          # Pattern 1: Uncontrolled code execution from user input
+          echo "Checking for uncontrolled code execution..."
+          if find .github/workflows -name "*.yml" -o -name "*.yaml" -exec grep -l '\${{.*github\.event\..*}}' {} \; | head -1 > /dev/null; then
+            echo "  ✗ Uncontrolled user input found:"
+            find .github/workflows -name "*.yml" -o -name "*.yaml" -exec grep -Hn '\${{.*github\.event\..*}}' {} \;
+            DANGEROUS_PATTERNS=$((DANGEROUS_PATTERNS + 1))
+          else
+            echo "  ✓ No uncontrolled user input patterns found"
+          fi
+          
+          # Pattern 2: Secrets exposure in logs
+          echo "Checking for potential secrets exposure..."
+          if find .github/workflows -name "*.yml" -o -name "*.yaml" -exec grep -l 'echo.*\${{.*secrets\..*}}' {} \; | head -1 > /dev/null; then
+            echo "  ✗ Potential secrets exposure found:"
+            find .github/workflows -name "*.yml" -o -name "*.yaml" -exec grep -Hn 'echo.*\${{.*secrets\..*}}' {} \;
+            DANGEROUS_PATTERNS=$((DANGEROUS_PATTERNS + 1))
+          else
+            echo "  ✓ No secrets exposure patterns found"
+          fi
+          
+          # Pattern 3: curl/wget with untrusted URLs
+          echo "Checking for untrusted network calls..."
+          if find .github/workflows -name "*.yml" -o -name "*.yaml" -exec grep -E "(curl|wget).*\\\$\\\{\\\{" {} \; | head -1 > /dev/null; then
+            echo "  ✗ Potentially dangerous network calls found:"
+            find .github/workflows -name "*.yml" -o -name "*.yaml" -exec grep -Hn -E "(curl|wget).*\\\$\\\{\\\{" {} \;
+            DANGEROUS_PATTERNS=$((DANGEROUS_PATTERNS + 1))
+          else
+            echo "  ✓ No dangerous network call patterns found"
+          fi
+          
+          # Pattern 4: Artifact uploads without validation
+          echo "Checking artifact upload security..."
+          if find .github/workflows -name "*.yml" -o -name "*.yaml" -exec grep -l "upload-artifact" {} \; > /tmp/artifact_workflows.txt; then
+            while read workflow; do
+              if ! grep -A10 -B10 "upload-artifact" "$workflow" | grep -q "path:.*dist/\|path: dist/"; then
+                echo "  ⚠ Artifact upload without explicit path restriction in: $workflow"
+              fi
+            done < /tmp/artifact_workflows.txt
+            echo "  ✓ Artifact upload patterns checked"
+          fi
+          
+          if [ $DANGEROUS_PATTERNS -gt 0 ]; then
+            echo
+            echo "❌ $DANGEROUS_PATTERNS DANGEROUS PATTERNS FOUND"
+            echo "============================================"
+            echo "Review and fix the security issues above"
+            exit 1
+          else
+            echo
+            echo "✅ NO DANGEROUS WORKFLOW PATTERNS FOUND"
+            echo "======================================="
+            echo "Workflows follow secure coding practices"
+          fi
