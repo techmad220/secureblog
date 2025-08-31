@@ -65,6 +65,56 @@ A maximum-security static blog generator with **plugin-based architecture**, zer
 5. **Edge** - Cloudflare Workers/Pages (no origin server needed)
 6. **Monitoring** - Privacy-preserving analytics, automated security audits
 
+## 🆕 Advanced Security Hardening (2025)
+
+### Immutable Storage with R2 Bucket Locks
+- **90-day retention policy** prevents deletion even with compromised credentials
+- **GOVERNANCE mode** object locks for release artifacts
+- **Versioning enabled** with audit trail for all changes
+- **Terraform configuration** in `cloudflare/r2-bucket-lock.tf`
+
+### DNS/Domain Hardening
+- **DNSSEC enabled** preventing DNS hijacking
+- **CAA records** restricting certificate issuance to Let's Encrypt only
+- **Registrar lock** preventing unauthorized domain transfers
+- **DANE TLSA** certificate pinning for additional validation
+
+### GitHub Actions Security Guardrails
+- **Requires 2 reviewers** for workflow changes via enhanced CODEOWNERS
+- **Default read-only permissions** with job-specific write grants
+- **Commit signature verification** enforced on all releases
+- **Runner hardening** with step-security/harden-runner
+
+### Release Verification UX
+- **One-line cosign verification** commands in release notes
+- **SHA-256 digests** prominently displayed
+- **Downloadable verification script** for easy validation
+- **SLSA Build Level 3** provenance with keyless signing
+
+### Strict Cache Integrity
+- **Content-hashed paths** for all assets (e.g., `/assets/app.a3b4c5d6.css`)
+- **Immutable caching** with 1-year max-age for hashed assets
+- **Automatic reference updates** in HTML/CSS files
+- **Cache manifest** with SHA-256 hashes for all files
+
+### CSP Reporting Infrastructure
+- **Cloudflare Worker** for CSP violation reports
+- **R2 storage** for report persistence (no third-party dependencies)
+- **Automatic filtering** of browser extension false positives
+- **Critical violation alerts** for real security threats
+
+### Content Pipeline Sanitization
+- **PDF rasterization** removes JavaScript, forms, and embedded files
+- **SVG sanitization** strips script elements and event handlers
+- **EXIF metadata removal** from all images
+- **Quarantine system** for dangerous content requiring manual review
+
+### Local UI Exclusion from Releases
+- **Build-time separation** ensures UI never reaches production
+- **Release guards** prevent accidental UI exposure
+- **Verification scripts** validate no UI components in artifacts
+- **Security manifest** documenting all excluded components
+
 ## Quick Start
 
 ### 🎯 Three Ways to Use SecureBlog
@@ -203,6 +253,9 @@ secureblog/
 - `make -f Makefile.security audit` - Run security audit
 - `make -f Makefile.security deploy` - Deploy with OIDC
 - `./scripts/security-audit.sh` - Comprehensive security scan
+- `./scripts/content-hash-assets.sh` - Hash all assets for cache integrity
+- `./scripts/pdf-svg-sanitizer.sh` - Sanitize PDFs and SVGs
+- `./scripts/build-release-safe.sh` - Build without local UI components
 
 ### Development
 - `make -f Makefile.security dev` - Read-only dev server

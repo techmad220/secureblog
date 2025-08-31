@@ -1,0 +1,204 @@
+name: Security Guardrails Enforcement
+# This workflow enforces security guardrails for all GitHub Actions
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/**'
+  push:
+    branches:
+      - main
+      - develop
+    paths:
+      - '.github/workflows/**'
+
+# Default permissions - read-only for all
+permissions:
+  contents: read
+  
+jobs:
+  validate-workflows:
+    name: Validate Workflow Security
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@v2
+        with:
+          egress-policy: block
+          allowed-endpoints: >
+            api.github.com:443
+            github.com:443
+            
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          
+      - name: Validate workflow permissions
+        run: |
+          #!/bin/bash
+          set -euo pipefail
+          
+          ERRORS=0
+          
+          # Check all workflow files
+          for workflow in .github/workflows/*.yml; do
+            echo "Checking $workflow..."
+            
+            # Ensure default permissions are read-only
+            if ! grep -q "permissions:" "$workflow"; then
+              echo "ERROR: $workflow missing default permissions declaration"
+              ERRORS=$((ERRORS + 1))
+            fi
+            
+            # Check for write permissions - must be job-specific
+            if grep -q "contents: write" "$workflow" && ! grep -B5 "contents: write" "$workflow" | grep -q "jobs:"; then
+              echo "ERROR: $workflow has workflow-level write permissions (should be job-specific)"
+              ERRORS=$((ERRORS + 1))
+            fi
+            
+            # Ensure no secrets in environment
+            if grep -q "SECRET" "$workflow" | grep -v "secrets\."; then
+              echo "ERROR: $workflow may contain hardcoded secrets"
+              ERRORS=$((ERRORS + 1))
+            fi
+            
+            # Check for runner hardening
+            if ! grep -q "harden-runner" "$workflow"; then
+              echo "WARNING: $workflow missing runner hardening"
+            fi
+          done
+          
+          if [ $ERRORS -gt 0 ]; then
+            echo "Found $ERRORS security issues in workflows"
+            exit 1
+          fi
+          
+      - name: Check CODEOWNERS for workflow protection
+        run: |
+          if [ ! -f .github/CODEOWNERS ]; then
+            echo "ERROR: Missing CODEOWNERS file"
+            exit 1
+          fi
+          
+          if ! grep -q "^\.github/workflows/\*\* @" .github/CODEOWNERS; then
+            echo "ERROR: Workflows not protected in CODEOWNERS"
+            exit 1
+          fi
+
+  enforce-branch-protection:
+    name: Enforce Branch Protection Rules
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    permissions:
+      contents: read
+      
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@v2
+        with:
+          egress-policy: audit
+          
+      - name: Check branch protection
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { data: protection } = await github.rest.repos.getBranchProtection({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              branch: 'main'
+            });
+            
+            // Verify required reviews
+            if (!protection.required_pull_request_reviews || 
+                protection.required_pull_request_reviews.required_approving_review_count < 2) {
+              core.setFailed('Branch protection requires at least 2 reviewers');
+            }
+            
+            // Verify dismiss stale reviews
+            if (!protection.required_pull_request_reviews.dismiss_stale_reviews) {
+              core.setFailed('Branch protection must dismiss stale reviews');
+            }
+            
+            // Verify require code owner reviews
+            if (!protection.required_pull_request_reviews.require_code_owner_reviews) {
+              core.setFailed('Branch protection must require code owner reviews');
+            }
+            
+            // Verify admin restrictions
+            if (!protection.enforce_admins) {
+              core.setFailed('Branch protection must include administrators');
+            }
+
+  scan-dependencies:
+    name: Scan Dependencies for Vulnerabilities
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+      
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@v2
+        with:
+          egress-policy: audit
+          
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          scan-ref: '.'
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+          severity: 'CRITICAL,HIGH'
+          
+      - name: Upload Trivy results to GitHub Security
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: 'trivy-results.sarif'
+
+  verify-signatures:
+    name: Verify Commit Signatures
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@v2
+        with:
+          egress-policy: block
+          allowed-endpoints: >
+            github.com:443
+            
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          
+      - name: Verify GPG signatures
+        run: |
+          #!/bin/bash
+          set -euo pipefail
+          
+          # Import known GPG keys
+          # Add your team's GPG public keys here
+          
+          # Verify all commits in PR are signed
+          if [ "${{ github.event_name }}" == "pull_request" ]; then
+            COMMITS=$(git rev-list ${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }})
+            
+            for commit in $COMMITS; do
+              if ! git verify-commit "$commit" 2>/dev/null; then
+                echo "ERROR: Commit $commit is not signed"
+                exit 1
+              fi
+            done
+          fi

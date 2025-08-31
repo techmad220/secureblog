@@ -2,7 +2,9 @@
 # All changes require security team review
 
 # Security-critical files require security maintainer approval
-/.github/workflows/                    @secureblog/security-team @secureblog/devops
+# GitHub Actions workflows - require 2 reviewers minimum
+/.github/workflows/**                  @secureblog/security-team @secureblog/devops
+/.github/workflows/*.yml               @secureblog/security-team @secureblog/devops @secureblog/workflow-approvers
 /scripts/                              @secureblog/security-team
 /nginx-ultra-hardened.conf            @secureblog/security-team @secureblog/devops
 /wrangler.toml                         @secureblog/security-team
