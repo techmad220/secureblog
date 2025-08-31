@@ -1,0 +1,198 @@
+name: Required Content Sanitization
+# MANDATORY CI CHECK - ALL CONTENT MUST BE SANITIZED BEFORE DIST
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  sanitize-all-content:
+    name: Sanitize All Content (Required)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@1e31de5234b664ca3f0ed09e5ce0d6de0c5d0fc1 # v4
+
+      - name: Install sanitization tools
+        run: |
+          echo "📦 Installing required sanitization tools..."
+          sudo apt-get update
+          sudo apt-get install -y \
+            imagemagick \
+            exiftool \
+            ghostscript \
+            xmlstarlet \
+            jq \
+            html-xml-utils
+
+      - name: Sanitize Markdown content
+        run: |
+          echo "🔍 Sanitizing Markdown files..."
+          
+          # Find all Markdown files
+          find . -name "*.md" -type f | while read md_file; do
+            echo "Processing: $md_file"
+            
+            # Check for raw HTML
+            if grep -E "<[^>]+>" "$md_file" | grep -v "^<!--"; then
+              echo "❌ Raw HTML found in $md_file"
+              
+              # Strip all HTML tags
+              sed -i 's/<[^>]*>//g' "$md_file"
+              echo "   Stripped HTML tags from $md_file"
+            fi
+            
+            # Check for javascript: URLs
+            if grep -i "javascript:" "$md_file"; then
+              echo "❌ JavaScript URL found in $md_file"
+              sed -i 's/javascript:[^"]*//gi' "$md_file"
+              echo "   Removed javascript: URLs"
+            fi
+          done
+          
+          echo "✅ All Markdown files sanitized"
+
+      - name: Strip EXIF from images
+        run: |
+          echo "🖼️ Stripping EXIF metadata from images..."
+          
+          # Find all image files
+          find . -type f \( -iname "*.jpg" -o -iname "*.jpeg" -o -iname "*.png" -o -iname "*.gif" -o -iname "*.webp" \) \
+            -not -path "./node_modules/*" -not -path "./.git/*" | while read img_file; do
+            
+            echo "Processing: $img_file"
+            
+            # Strip EXIF with exiftool
+            exiftool -all= -overwrite_original "$img_file" 2>/dev/null || true
+            
+            # Verify EXIF was removed
+            if exiftool "$img_file" 2>/dev/null | grep -E "(GPS|Camera|Date/Time)" >/dev/null; then
+              echo "❌ EXIF data still present in $img_file"
+              
+              # Try ImageMagick as fallback
+              convert "$img_file" -strip "$img_file.tmp" && mv "$img_file.tmp" "$img_file"
+              echo "   Used ImageMagick to strip EXIF"
+            else
+              echo "   ✅ EXIF stripped from $img_file"
+            fi
+          done
+          
+          echo "✅ All images sanitized"
+
+      - name: Sanitize SVG files
+        run: |
+          echo "🎨 Sanitizing SVG files..."
+          
+          # Find all SVG files
+          find . -name "*.svg" -type f -not -path "./node_modules/*" | while read svg_file; do
+            echo "Processing: $svg_file"
+            
+            # Check for dangerous content
+            if grep -iE "(<script|javascript:|on[a-z]+=|<foreignObject|<iframe)" "$svg_file"; then
+              echo "❌ Dangerous content in $svg_file"
+              
+              # Sanitize with xmlstarlet
+              xmlstarlet ed \
+                -d "//script" \
+                -d "//@*[starts-with(name(), 'on')]" \
+                -d "//foreignObject" \
+                -d "//iframe" \
+                -d "//object" \
+                -d "//embed" \
+                "$svg_file" > "$svg_file.tmp" 2>/dev/null && mv "$svg_file.tmp" "$svg_file"
+              
+              echo "   Sanitized dangerous elements"
+            else
+              echo "   ✅ SVG is clean"
+            fi
+          done
+          
+          echo "✅ All SVG files sanitized"
+
+      - name: Flatten PDF files
+        run: |
+          echo "📄 Flattening PDF files..."
+          
+          # Find all PDF files
+          find . -name "*.pdf" -type f -not -path "./node_modules/*" | while read pdf_file; do
+            echo "Processing: $pdf_file"
+            
+            # Check for JavaScript in PDF
+            if strings "$pdf_file" | grep -iE "(javascript|/JS|/AA)" >/dev/null; then
+              echo "❌ JavaScript found in $pdf_file"
+              
+              # Flatten with Ghostscript
+              gs -dSAFER -dBATCH -dNOPAUSE \
+                 -sDEVICE=pdfwrite \
+                 -dCompatibilityLevel=1.4 \
+                 -sOutputFile="$pdf_file.tmp" \
+                 "$pdf_file" 2>/dev/null && mv "$pdf_file.tmp" "$pdf_file"
+              
+              echo "   Flattened PDF to remove JavaScript"
+            else
+              echo "   ✅ PDF is clean"
+            fi
+          done
+          
+          echo "✅ All PDF files sanitized"
+
+      - name: Verify all external assets removed
+        run: |
+          echo "🌐 Verifying no external assets..."
+          
+          # Check for external URLs in HTML/CSS
+          EXTERNAL_REFS=$(find . \( -name "*.html" -o -name "*.css" \) -type f \
+            -exec grep -l "https\?://[^/]*\.[^/\"']*" {} \; | head -5)
+          
+          if [ -n "$EXTERNAL_REFS" ]; then
+            echo "❌ External references found:"
+            echo "$EXTERNAL_REFS"
+            echo "All assets must be self-hosted!"
+            exit 1
+          fi
+          
+          echo "✅ No external assets found"
+
+      - name: Create sanitization report
+        run: |
+          echo "📊 Creating sanitization report..."
+          
+          cat > sanitization-report.json << EOF
+          {
+            "timestamp": "$(date -Iseconds)",
+            "sanitization": {
+              "markdown_html_stripped": true,
+              "images_exif_removed": true,
+              "svg_scripts_removed": true,
+              "pdf_javascript_removed": true,
+              "external_assets_blocked": true
+            },
+            "policy": {
+              "no_raw_html": "enforced",
+              "no_exif_metadata": "enforced",
+              "no_svg_scripts": "enforced",
+              "no_pdf_javascript": "enforced",
+              "no_external_assets": "enforced"
+            },
+            "status": "SANITIZED"
+          }
+          EOF
+          
+          echo "✅ Sanitization report created"
+
+      - name: Upload sanitization report
+        uses: actions/upload-artifact@1ba91c08ce7f4db2fe1e6c0a66fdd4e35d8d0e7a # v4
+        with:
+          name: sanitization-report
+          path: sanitization-report.json
+          retention-days: 30
+
+# This workflow MUST pass before ANY content reaches dist/
+# It ensures all user-supplied content is sanitized

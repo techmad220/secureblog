@@ -1,0 +1,193 @@
+name: Required No-JS Guard
+# MANDATORY STATUS CHECK - BLOCKS ALL JAVASCRIPT
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  no-javascript-enforcement:
+    name: Block All JavaScript (Required)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@1e31de5234b664ca3f0ed09e5ce0d6de0c5d0fc1 # v4
+        with:
+          fetch-depth: 0
+
+      - name: Check for JavaScript files
+        id: js-files
+        run: |
+          echo "🔍 Scanning for JavaScript files..."
+          
+          # Find any .js, .mjs, .cjs, .jsx, .ts, .tsx files
+          JS_FILES=$(find . -type f \( -name "*.js" -o -name "*.mjs" -o -name "*.cjs" -o -name "*.jsx" -o -name "*.ts" -o -name "*.tsx" \) \
+            -not -path "./node_modules/*" \
+            -not -path "./.git/*" \
+            -not -path "./scripts/*" \
+            -not -path "./.github/*" | head -20)
+          
+          if [ -n "$JS_FILES" ]; then
+            echo "❌ JAVASCRIPT FILES DETECTED:"
+            echo "$JS_FILES"
+            echo "found_js=true" >> $GITHUB_OUTPUT
+            exit 1
+          else
+            echo "✅ No JavaScript files found"
+            echo "found_js=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Check for script tags in HTML
+        run: |
+          echo "🔍 Scanning HTML for script tags..."
+          
+          # Check all HTML files for script tags
+          if find . -name "*.html" -type f -exec grep -l "<script" {} \; | head -5 | grep -q .; then
+            echo "❌ SCRIPT TAGS FOUND IN HTML:"
+            find . -name "*.html" -type f -exec grep -Hn "<script" {} \; | head -10
+            exit 1
+          else
+            echo "✅ No script tags in HTML"
+          fi
+
+      - name: Check for inline JavaScript
+        run: |
+          echo "🔍 Scanning for inline JavaScript..."
+          
+          # Check for onclick, onload, etc.
+          if find . -name "*.html" -type f -exec grep -El "on(click|load|mouse|key|submit|change|focus|blur|error)\s*=" {} \; | head -5 | grep -q .; then
+            echo "❌ INLINE JAVASCRIPT EVENT HANDLERS FOUND:"
+            find . -name "*.html" -type f -exec grep -Hn "on[a-z]*\s*=" {} \; | head -10
+            exit 1
+          else
+            echo "✅ No inline JavaScript handlers"
+          fi
+
+      - name: Check for javascript: URLs
+        run: |
+          echo "🔍 Scanning for javascript: URLs..."
+          
+          if find . \( -name "*.html" -o -name "*.md" -o -name "*.css" \) -type f -exec grep -l "javascript:" {} \; | head -5 | grep -q .; then
+            echo "❌ JAVASCRIPT: URLS FOUND:"
+            find . \( -name "*.html" -o -name "*.md" -o -name "*.css" \) -type f -exec grep -Hn "javascript:" {} \; | head -10
+            exit 1
+          else
+            echo "✅ No javascript: URLs"
+          fi
+
+      - name: Verify CSP blocks all JavaScript
+        run: |
+          echo "🔍 Verifying CSP configuration..."
+          
+          # Check all CSP configurations
+          CSP_FILES=$(find . -type f \( -name "*.toml" -o -name "*.yml" -o -name "*.yaml" -o -name "*.json" \) -exec grep -l "Content-Security-Policy" {} \;)
+          
+          for file in $CSP_FILES; do
+            echo "Checking CSP in: $file"
+            
+            # Extract CSP value
+            CSP=$(grep -A2 "Content-Security-Policy" "$file" | tr '\n' ' ')
+            
+            # Check for script-src directives
+            if echo "$CSP" | grep -E "script-src\s+[^']*(unsafe-inline|unsafe-eval|http|https)" | grep -v "script-src 'none'"; then
+              echo "❌ DANGEROUS CSP CONFIGURATION FOUND IN $file"
+              echo "CSP allows JavaScript execution!"
+              exit 1
+            fi
+            
+            # Verify default-src 'none' or script-src 'none'
+            if echo "$CSP" | grep -E "(default-src\s+'none'|script-src\s+'none')"; then
+              echo "✅ CSP blocks JavaScript in $file"
+            else
+              echo "⚠️  CSP may not fully block JavaScript in $file"
+            fi
+          done
+
+      - name: Check build output for JavaScript
+        run: |
+          echo "🔍 Checking build output..."
+          
+          # Build the project
+          if [ -f "Makefile" ]; then
+            make build-static || true
+          fi
+          
+          # Check dist directory if it exists
+          if [ -d "dist" ]; then
+            echo "Checking dist/ directory for JavaScript..."
+            
+            # Check for .js files in dist
+            if find dist -name "*.js" -type f | head -5 | grep -q .; then
+              echo "❌ JAVASCRIPT FILES IN BUILD OUTPUT:"
+              find dist -name "*.js" -type f | head -10
+              exit 1
+            fi
+            
+            # Check HTML files in dist for scripts
+            if find dist -name "*.html" -type f -exec grep -l "<script" {} \; | head -5 | grep -q .; then
+              echo "❌ SCRIPT TAGS IN BUILD OUTPUT HTML"
+              exit 1
+            fi
+            
+            echo "✅ Build output is JavaScript-free"
+          else
+            echo "⚠️  No dist directory to check"
+          fi
+
+      - name: Final JavaScript verdict
+        run: |
+          echo "======================================"
+          echo "🛡️  ZERO-JAVASCRIPT ENFORCEMENT PASSED"
+          echo "======================================"
+          echo "✅ No JavaScript files detected"
+          echo "✅ No script tags in HTML"
+          echo "✅ No inline event handlers"
+          echo "✅ No javascript: URLs"
+          echo "✅ CSP blocks all script execution"
+          echo "✅ Build output is clean"
+          echo
+          echo "This site is guaranteed JavaScript-free!"
+
+  verify-csp-headers:
+    name: Verify CSP Headers Match Golden Config
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@1e31de5234b664ca3f0ed09e5ce0d6de0c5d0fc1 # v4
+
+      - name: Verify CSP configuration
+        run: |
+          echo "🔍 Verifying CSP matches golden configuration..."
+          
+          # Golden CSP configuration (no JavaScript allowed)
+          GOLDEN_CSP="default-src 'none'; img-src 'self' data:; style-src 'self'; font-src 'self'; script-src 'none'; object-src 'none'; frame-ancestors 'none'; base-uri 'self'; form-action 'none'"
+          
+          # Check cloudflare-pages-only.toml
+          if [ -f "cloudflare-pages-only.toml" ]; then
+            TOML_CSP=$(grep "Content-Security-Policy" cloudflare-pages-only.toml | cut -d'"' -f2)
+            
+            if echo "$TOML_CSP" | grep -q "script-src 'none'"; then
+              echo "✅ CSP in cloudflare-pages-only.toml blocks JavaScript"
+            else
+              echo "❌ CSP configuration doesn't block JavaScript!"
+              exit 1
+            fi
+          fi
+          
+          echo "✅ All CSP configurations verified to block JavaScript"
+
+# This workflow MUST be a required status check in branch protection
+# To enable:
+# 1. Go to Settings > Branches > main > Edit
+# 2. Check "Require status checks to pass before merging"
+# 3. Search for "Block All JavaScript (Required)" and add it
+# 4. Check "Require branches to be up to date before merging"

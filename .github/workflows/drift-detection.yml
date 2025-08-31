@@ -1,0 +1,200 @@
+name: Drift Detection
+# HARD FAIL ON ANY DRIFT FROM GOLDEN CONFIGURATION
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: '0 */6 * * *'  # Every 6 hours
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  detect-configuration-drift:
+    name: Detect Configuration Drift (Required)
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@1e31de5234b664ca3f0ed09e5ce0d6de0c5d0fc1 # v4
+
+      - name: Load golden configuration
+        run: |
+          echo "📋 Loading golden security configuration..."
+          
+          # Create golden configuration file
+          cat > golden-config.json << 'EOF'
+          {
+            "csp": {
+              "default-src": "'none'",
+              "img-src": "'self' data:",
+              "style-src": "'self'",
+              "font-src": "'self'",
+              "script-src": "'none'",
+              "object-src": "'none'",
+              "frame-ancestors": "'none'",
+              "base-uri": "'self'",
+              "form-action": "'none'",
+              "upgrade-insecure-requests": true
+            },
+            "headers": {
+              "X-Content-Type-Options": "nosniff",
+              "X-Frame-Options": "DENY",
+              "X-XSS-Protection": "1; mode=block",
+              "Referrer-Policy": "strict-origin-when-cross-origin",
+              "Strict-Transport-Security": "max-age=63072000; includeSubDomains; preload",
+              "Cross-Origin-Embedder-Policy": "require-corp",
+              "Cross-Origin-Opener-Policy": "same-origin",
+              "Cross-Origin-Resource-Policy": "same-origin"
+            },
+            "cloudflare": {
+              "rocket_loader": "off",
+              "email_obfuscation": "off",
+              "minify_js": false,
+              "mirage": "off",
+              "polish": "off",
+              "automatic_https_rewrites": "off"
+            },
+            "methods_allowed": ["GET", "HEAD"],
+            "request_body_limit": "1KB",
+            "javascript_allowed": false
+          }
+          EOF
+          
+          echo "✅ Golden configuration loaded"
+
+      - name: Check CSP configuration drift
+        run: |
+          echo "🔍 Checking CSP configuration..."
+          
+          # Extract CSP from cloudflare-pages-only.toml
+          if [ -f "cloudflare-pages-only.toml" ]; then
+            CSP_IN_TOML=$(grep "Content-Security-Policy" cloudflare-pages-only.toml | head -1)
+            
+            # Verify critical CSP directives
+            if ! echo "$CSP_IN_TOML" | grep -q "script-src 'none'"; then
+              echo "❌ CSP DRIFT: script-src is not 'none'"
+              echo "Found: $CSP_IN_TOML"
+              exit 1
+            fi
+            
+            if ! echo "$CSP_IN_TOML" | grep -q "default-src 'none'"; then
+              echo "❌ CSP DRIFT: default-src is not 'none'"
+              exit 1
+            fi
+            
+            echo "✅ CSP configuration matches golden standard"
+          else
+            echo "❌ cloudflare-pages-only.toml not found!"
+            exit 1
+          fi
+
+      - name: Check header configuration drift
+        run: |
+          echo "🔍 Checking security headers..."
+          
+          # Check all header configurations
+          REQUIRED_HEADERS=(
+            "X-Content-Type-Options.*nosniff"
+            "X-Frame-Options.*DENY"
+            "Strict-Transport-Security.*preload"
+            "Cross-Origin-Embedder-Policy.*require-corp"
+            "Cross-Origin-Opener-Policy.*same-origin"
+          )
+          
+          for header_pattern in "${REQUIRED_HEADERS[@]}"; do
+            if ! grep -E "$header_pattern" cloudflare-pages-only.toml >/dev/null; then
+              echo "❌ HEADER DRIFT: Missing or incorrect $header_pattern"
+              exit 1
+            fi
+          done
+          
+          echo "✅ All security headers present and correct"
+
+      - name: Check Worker configuration drift
+        run: |
+          echo "🔍 Checking Worker configuration..."
+          
+          # Check for Worker files that might inject JavaScript
+          if find . -name "*.js" -path "*/workers/*" -o -path "*/functions/*" | head -1 | grep -q .; then
+            echo "⚠️  Worker/Function files detected"
+            
+            # Verify Workers don't inject JavaScript
+            find . -name "*.js" -path "*/workers/*" -o -path "*/functions/*" | while read worker_file; do
+              echo "Checking: $worker_file"
+              
+              if grep -E "(eval|Function|script|document\.write)" "$worker_file"; then
+                echo "❌ WORKER DRIFT: Dangerous JavaScript operations in $worker_file"
+                exit 1
+              fi
+            done
+          fi
+          
+          echo "✅ Worker configuration acceptable"
+
+      - name: Test live site for drift
+        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+        run: |
+          echo "🌐 Testing live site configuration..."
+          
+          LIVE_URL="${{ vars.SITE_URL || 'https://secureblog.pages.dev' }}"
+          
+          # Check live CSP header
+          echo "Testing: $LIVE_URL"
+          LIVE_CSP=$(curl -sI "$LIVE_URL" | grep -i "content-security-policy" | cut -d: -f2-)
+          
+          if [ -n "$LIVE_CSP" ]; then
+            if ! echo "$LIVE_CSP" | grep -q "script-src 'none'"; then
+              echo "❌ LIVE SITE DRIFT: CSP doesn't block JavaScript!"
+              echo "Live CSP: $LIVE_CSP"
+              exit 1
+            fi
+            echo "✅ Live site CSP blocks JavaScript"
+          else
+            echo "⚠️  Could not retrieve live CSP header"
+          fi
+          
+          # Check for JavaScript in live site
+          if curl -s "$LIVE_URL" | grep -q "<script"; then
+            echo "❌ LIVE SITE DRIFT: JavaScript detected!"
+            exit 1
+          fi
+          
+          echo "✅ Live site is JavaScript-free"
+
+      - name: Create drift report
+        if: failure()
+        run: |
+          cat > drift-report.json << EOF
+          {
+            "timestamp": "$(date -Iseconds)",
+            "drift_detected": true,
+            "repository": "${{ github.repository }}",
+            "ref": "${{ github.ref }}",
+            "run_id": "${{ github.run_id }}",
+            "violations": [
+              "Configuration does not match golden standard",
+              "Manual intervention required"
+            ]
+          }
+          EOF
+          
+          echo "❌ DRIFT DETECTED - Deployment will be blocked"
+
+      - name: Create issue on drift detection
+        if: failure() && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh issue create \
+            --title "🚨 Security Configuration Drift Detected" \
+            --body "Configuration drift detected from golden security standard. Review run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            --label "security,urgent"
+
+# This workflow MUST pass for deployment
+# Any drift from golden configuration blocks all deployments

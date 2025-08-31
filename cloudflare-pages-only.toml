@@ -1,0 +1,97 @@
+# Cloudflare Pages-Only Configuration
+# NO VPS, NO ORIGIN SERVER, PURE STATIC EDGE DEPLOYMENT
+
+name = "secureblog"
+compatibility_date = "2025-01-01"
+
+[build]
+command = "make build-static"
+publish = "dist/"
+
+[build.environment]
+NODE_VERSION = "20.11.0"
+GO_VERSION = "1.23.1"
+
+# Production deployment settings
+[[deployments]]
+name = "production"
+branch = "main"
+
+# Build environment variables (no secrets here)
+[env.production]
+SITE_URL = "https://secureblog.pages.dev"
+BUILD_MODE = "production"
+JAVASCRIPT_ALLOWED = "false"
+CSP_POLICY = "default-src 'none'; img-src 'self' data:; style-src 'self'; font-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'none'"
+
+# Preview deployments
+[[deployments]]
+name = "preview"
+branch = "*"
+
+[env.preview]
+SITE_URL = "https://preview.secureblog.pages.dev"
+BUILD_MODE = "preview"
+JAVASCRIPT_ALLOWED = "false"
+ROBOTS_NOINDEX = "true"
+
+# Headers configuration (enforced at edge)
+[[headers]]
+for = "/*"
+[headers.values]
+# Security headers - ZERO JAVASCRIPT ENFORCEMENT
+Content-Security-Policy = "default-src 'none'; img-src 'self' data:; style-src 'self'; font-src 'self'; manifest-src 'none'; script-src 'none'; object-src 'none'; frame-ancestors 'none'; base-uri 'self'; form-action 'none'; upgrade-insecure-requests; block-all-mixed-content"
+X-Content-Type-Options = "nosniff"
+X-Frame-Options = "DENY"
+X-XSS-Protection = "1; mode=block"
+Referrer-Policy = "strict-origin-when-cross-origin"
+Permissions-Policy = "accelerometer=(), ambient-light-sensor=(), autoplay=(), battery=(), camera=(), cross-origin-isolated=(), display-capture=(), document-domain=(), encrypted-media=(), execution-while-not-rendered=(), execution-while-out-of-viewport=(), fullscreen=(), geolocation=(), gyroscope=(), keyboard-map=(), magnetometer=(), microphone=(), midi=(), navigation-override=(), payment=(), picture-in-picture=(), publickey-credentials-get=(), screen-wake-lock=(), sync-xhr=(), usb=(), web-share=(), xr-spatial-tracking=()"
+Cross-Origin-Embedder-Policy = "require-corp"
+Cross-Origin-Opener-Policy = "same-origin"
+Cross-Origin-Resource-Policy = "same-origin"
+Strict-Transport-Security = "max-age=63072000; includeSubDomains; preload"
+Cache-Control = "public, max-age=3600, s-maxage=86400, stale-while-revalidate=604800"
+
+# Specific headers for HTML files
+[[headers]]
+for = "/*.html"
+[headers.values]
+Cache-Control = "public, max-age=0, must-revalidate"
+Content-Type = "text/html; charset=utf-8"
+X-Content-Type-Options = "nosniff"
+
+# Headers for static assets
+[[headers]]
+for = "/assets/*"
+[headers.values]
+Cache-Control = "public, max-age=31536000, immutable"
+Access-Control-Allow-Origin = "none"
+
+# Redirects
+[[redirects]]
+from = "/admin"
+to = "/"
+status = 404
+
+[[redirects]]
+from = "/api/*"
+to = "/"
+status = 404
+
+[[redirects]]
+from = "/.git/*"
+to = "/"
+status = 404
+
+[[redirects]]
+from = "/wp-admin/*"
+to = "/"  
+status = 404
+
+[[redirects]]
+from = "/*.php"
+to = "/"
+status = 404
+
+# Functions directory (should be empty - no server-side code)
+# functions_directory = "functions"  # DISABLED - NO FUNCTIONS ALLOWED

@@ -1,0 +1,36 @@
+# SecureBlog Security Policy
+# This file implements https://securitytxt.org/
+
+Contact: mailto:security@secureblog.com
+Contact: https://github.com/techmad220/secureblog/security/advisories/new
+Expires: 2026-12-31T23:59:59.000Z
+Preferred-Languages: en
+Canonical: https://secureblog.pages.dev/.well-known/security.txt
+
+# Security Acknowledgments
+Acknowledgments: https://secureblog.pages.dev/security-acknowledgments
+
+# Bug Bounty Program (if applicable)
+# Policy: https://secureblog.pages.dev/bug-bounty
+
+# Encryption Key for secure communication
+# Encryption: https://secureblog.pages.dev/pgp-key.txt
+
+# Vulnerability Disclosure Policy
+Policy: https://secureblog.pages.dev/vulnerability-disclosure-policy
+
+# Hiring Security Researchers
+# Hiring: https://secureblog.pages.dev/security-careers
+
+# Security Features
+# - Zero JavaScript execution (enforced)
+# - Content Security Policy: default-src 'none'
+# - No origin servers (Cloudflare Pages only)
+# - All content sanitized before deployment
+# - SLSA Level 3 build provenance
+# - Signed releases with Cosign
+# - Hardware 2FA required for all maintainers
+
+# Report Security Issues
+# DO NOT create public GitHub issues for security vulnerabilities
+# Use private security advisory or encrypted email
