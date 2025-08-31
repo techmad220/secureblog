@@ -65,7 +65,69 @@ A maximum-security static blog generator with **plugin-based architecture**, zer
 5. **Edge** - Cloudflare Workers/Pages (no origin server needed)
 6. **Monitoring** - Privacy-preserving analytics, automated security audits
 
-## 🆕 Advanced Security Hardening (2025)
+## 🆕 Maximum Security Hardening (2025) - COMPLETE
+
+### 🔐 ALL GITHUB ACTIONS PINNED TO COMMIT SHA
+- **73 GitHub Actions** across 27 workflows pinned to full 40-character commit SHAs
+- **Automated pinning script** `scripts/pin-actions.sh` with SHA updates
+- **Supply chain attack prevention** - no more floating tags like `@v4`
+- **Verification in CI** to ensure all actions remain pinned
+
+### 🚫 AGGRESSIVE ZERO-JAVASCRIPT ENFORCEMENT
+- **12 comprehensive detection layers** in `.scripts/security-regression-guard.sh`
+- **100+ event handlers blocked** (onclick, onload, onmouseover, etc.)
+- **JavaScript patterns detection**: eval(), Function(), setTimeout(), WebAssembly
+- **Data URL scanning** for embedded JavaScript content
+- **SVG script detection** and complete iframe/embed blocking
+- **Final JS pattern matching** catches any remaining JS constructs
+
+### 🛡️ GET/HEAD-ONLY CLOUDFLARE WORKER WITH 1KB CAP
+- **Method enforcement** blocks ALL HTTP methods except GET/HEAD
+- **1KB response size limit** prevents resource exhaustion
+- **Content verification** scans HTML responses for JavaScript
+- **Rate limiting** (100 req/min per IP) with automatic cleanup
+- **Comprehensive security headers** injected at edge
+- **Zero-trust architecture** with fail-secure defaults
+
+### ✅ SLSA LEVEL 3 PROVENANCE VERIFICATION
+- **Artifact hash generation** for all build outputs
+- **SLSA generator integration** with base64-encoded subjects
+- **Provenance verification job** validates all artifacts
+- **Build reproducibility checks** ensure hermetic builds
+- **SLSA verifier validation** with source URI matching
+
+### 🔥 COMPREHENSIVE CLOUDFLARE WAF & ZONE HARDENING
+- **WAF custom rules** blocking dangerous extensions (.php, .js, .asp, etc.)
+- **Method restrictions** enforced at WAF level
+- **Hidden file protection** except .well-known paths
+- **Admin path blocking** (/admin, /wp-admin, /administrator, etc.)
+- **Maximum security zone settings** with TLS 1.2+ enforcement
+- **Transform rules** for security headers at edge
+- **Bot protection** and rate limiting with country restrictions
+
+### 🔏 IMMUTABLE SIGNED RELEASES WITH KEYLESS COSIGN
+- **Hermetic builds** with complete network isolation (`--network=none`)
+- **Cosign keyless signing** using GitHub OIDC trust
+- **SHA-256/SHA-512 checksums** for all release assets
+- **SLSA provenance generation** for release artifacts
+- **GitHub attestations** with build provenance
+- **Cryptographic verification instructions** in release notes
+- **Immutable release assets** that cannot be modified
+
+### 🔄 SECURITY-FOCUSED DEPENDENCY MANAGEMENT
+- **Enhanced Dependabot configuration** for GitHub Actions, Go, Docker, Terraform
+- **Security-only updates** to minimize noise and focus on critical fixes
+- **Staggered update schedule** (Monday-Thursday) for different ecosystems
+- **Auto-labeling and assignment** for security patches
+- **Terraform provider updates** allowed for security fixes
+
+### 🧹 ENHANCED MARKDOWN/TEMPLATE SANITIZATION
+- **40+ dangerous HTML patterns** blocked (scripts, objects, embeds, etc.)
+- **70+ event handlers** comprehensively stripped
+- **JavaScript function detection** (eval, Function, setTimeout, etc.)
+- **CSS injection prevention** (expression(), binding:, @import)
+- **Browser API blocking** (window[], document[], navigator[])
+- **Strict HTML allowlist** with safe-only tags permitted
 
 ### Immutable Storage with R2 Bucket Locks
 - **90-day retention policy** prevents deletion even with compromised credentials
@@ -256,6 +318,16 @@ secureblog/
 - `./scripts/content-hash-assets.sh` - Hash all assets for cache integrity
 - `./scripts/pdf-svg-sanitizer.sh` - Sanitize PDFs and SVGs
 - `./scripts/build-release-safe.sh` - Build without local UI components
+
+### 🆕 Maximum Security Commands (2025)
+- `./scripts/pin-actions.sh` - Pin all GitHub Actions to commit SHAs
+- `./.scripts/security-regression-guard.sh dist` - Aggressive zero-JS enforcement (12 layers)
+- `./scripts/deploy-waf-rules.sh` - Deploy comprehensive Cloudflare WAF rules
+- `./scripts/deploy-verify.sh verify` - Pre-deployment security verification
+- `./scripts/deploy-verify.sh deploy` - Secure deployment with verification
+- `./scripts/deploy-verify.sh kill-switch` - Emergency site blocking
+- `./scripts/deploy-verify.sh rollback` - Instant rollback to previous version
+- `./scripts/markdown-sanitizer.sh content templates` - Enhanced content sanitization
 
 ### Development
 - `make -f Makefile.security dev` - Read-only dev server
