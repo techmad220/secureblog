@@ -1,0 +1,55 @@
+name: verify-provenance
+on:
+  workflow_dispatch:
+  release:
+    types: [published]
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Install cosign
+        run: |
+          set -euo pipefail
+          curl -sSL https://raw.githubusercontent.com/sigstore/cosign/main/install.sh | sudo bash
+          cosign version
+
+      - name: Download release artifacts
+        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7
+        with:
+          script: |
+            const {owner, repo} = context.repo;
+            const release = context.payload.release;
+            core.info(`Release: ${release.tag_name}`);
+            // Download all assets to ./release
+            const fs = require('fs');
+            const path = require('path');
+            const { Octokit } = require('@octokit/rest');
+            const octokit = github.getOctokit(process.env.GITHUB_TOKEN);
+            await fs.promises.mkdir('./release', { recursive: true });
+            for (const a of release.assets) {
+              const res = await octokit.request('GET /repos/{owner}/{repo}/releases/assets/{asset_id}', {
+                owner, repo, asset_id: a.id, headers: { accept: 'application/octet-stream' }
+              });
+              const p = path.join('./release', a.name);
+              fs.writeFileSync(p, Buffer.from(res.data));
+              core.info(`Downloaded ${a.name}`);
+            }
+
+      - name: Verify SLSA provenance (GitHub OIDC)
+        env:
+          COSIGN_EXPERIMENTAL: "1"
+        run: |
+          set -euo pipefail
+          # Verify every *.intoto.jsonl attestation against GitHub OIDC issuer and this repo identity
+          for f in release/*.intoto.jsonl; do
+            [ -e "$f" ] || continue
+            cosign verify-attestation \
+              --type slsaprovenance \
+              --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+              --certificate-identity-regexp '^https://github.com/techmad220/secureblog/.+' \
+              "$f"
+          done

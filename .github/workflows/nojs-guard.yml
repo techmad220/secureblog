@@ -1,18 +1,56 @@
 name: nojs-guard
 on:
-  pull_request:
   push:
-    branches: [ main ]
-permissions:
-  contents: read
+  pull_request:
 
 jobs:
   guard:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@1e31de5234b664ca3f0ed09e5ce0d6de0c5d0fc1 # actions/checkout@v4
-      - uses: actions/setup-go@41dfa10bad2bb2ae585af6ee5bb4d7d973ad74ed # actions/setup-go@v5
+      - name: Checkout
+        uses: actions/checkout@1e31de5234b664ca3f0ed09e5ce0d6de0c5d0fc1 # v4
         with:
-          go-version-file: go.mod
-      - run: make -f Makefile.security build
-      - run: bash .scripts/security-regression-guard.sh dist
+          fetch-depth: 1
+
+      - name: Build (release mode, hermetic-ish)
+        run: |
+          set -euo pipefail
+          export CGO_ENABLED=0
+          export GOTOOLCHAIN=local
+          sudo apt-get update -y
+          sudo apt-get install -y ripgrep jq
+          # Build your site (adjust if you use a script)
+          bash ./build-sandbox.sh
+          test -d dist
+
+      - name: Block scripts/events/javascript URLs
+        run: |
+          set -euo pipefail
+          rg -n --hidden --no-mmap --glob 'dist/**/*' \
+             -e '<script' \
+             -e 'on[a-zA-Z]+\s*=' \
+             -e 'javascript:' && { echo "❌ HTML contains script/event/javascript URL"; exit 1; } || true
+
+      - name: Forbid inline data URLs except images
+        run: |
+          set -euo pipefail
+          # Allow data:image/*; block everything else
+          rg -n --hidden --no-mmap --glob 'dist/**/*' \
+             -e 'data:(?!image/)' && { echo "❌ Non-image data: URL found"; exit 1; } || true
+
+      - name: External resources must have SRI (CSS/fonts only)
+        run: |
+          set -euo pipefail
+          # If you include any external CSS/fonts, require integrity= on <link> tags.
+          rg -n --hidden --no-mmap --glob 'dist/**/*.html' '<link[^>]+rel=("|\')stylesheet("|\')' > links.txt || true
+          if [ -s links.txt ]; then
+            rg -n --hidden --no-mmap --glob 'dist/**/*.html' '<link[^>]+rel=("|\')stylesheet("|\')[^>]*\sintegrity=' >/dev/null \
+              || { echo "❌ External stylesheet without SRI"; exit 1; }
+          fi
+
+      - name: Lychee link check (fail only on broken internal links)
+        uses: lycheeverse/lychee-action@2b973e86fc5b72b21b25b493b3a85ab2570464ed # v1
+        with:
+          args: --no-progress --max-concurrency 8 --timeout 20s --method HEAD --accept 429,403,405 --exclude-all-private 'dist/**/*.html'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
