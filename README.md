@@ -44,10 +44,16 @@ A maximum-security static blog generator with **plugin-based architecture**, zer
 - **Cryptographic Integrity** - Every file SHA-256 hashed and Ed25519 signed
 - **Subresource Integrity (SRI)** - Automatic SHA-384 hashes for any external resources
 - **Plugin Sandboxing** - Network denied, build-time only, output filtered
-- **SLSA Provenance** - Keyless Cosign attestation on every build
+- **SLSA Level 3 Provenance** - Keyless Cosign attestation with digest verification
 - **Supply Chain Security** - govulncheck + staticcheck + gitleaks in CI
 - **CDN-Only Architecture** - No origin server, no SSH, no kernel exposure
 - **CDN Rate Limiting** - DDoS protection with per-IP, ASN, and country limits
+- **Content Security Policy** - Strict CSP allowing only images/CSS, zero scripts
+- **Edge Security Gates** - Cloudflare Workers enforce GET/HEAD only, block patterns
+- **WAF Protection** - Method restrictions, query sanitization, bot challenges
+- **Content Pipeline Security** - EXIF stripping, SVG sanitization, PDF flattening
+- **GitHub Hardening** - Signed commits, CODEOWNERS, branch/tag protection
+- **Security Disclosure** - security.txt with PGP key for responsible disclosure
 - **Privacy Analytics** - Edge-only metrics, zero client-side tracking (see `docs/PRIVACY_ANALYTICS.md`)
 - **OIDC Everywhere** - Zero long-lived credentials in entire system
 
@@ -315,9 +321,10 @@ Every push and PR triggers our multi-layered security validation:
 - **HTML validation** - W3C tidy compliance checks
 - **Artifact generation** - Secure site bundle
 
-#### `.github/workflows/deploy-pages.yml`
+#### `.github/workflows/deploy.yml`
 - **Automated Cloudflare Pages deployment**
 - **No-JS regression guard before deploy**
+- **SLSA attestation verification** with exact digest matching
 - **Zero-downtime updates**
 - **CDN-only architecture** (no origin server)
 
@@ -442,11 +449,13 @@ Every push to `main` triggers our comprehensive security validation pipeline:
 
 #### **🌐 Infrastructure Security**
 - ✅ **Originless Architecture** - CDN-only deployment, zero server exposure
-- ✅ **Cloudflare Zone Hardening** - WAF, HSTS, bot protection, DNSSEC enabled
+- ✅ **Cloudflare Zone Hardening** - WAF, HSTS preload, bot protection, DNSSEC enabled
 - ✅ **Edge Runtime Gates** - 1KB request limits, GET/HEAD only, rate limiting
 - ✅ **Content-Hashed Assets** - SHA-256 based immutable caching (1-year expiry)
-- ✅ **Security Headers Validation** - Comprehensive header testing
+- ✅ **Security Headers Validation** - CSP, CORP, COEP, COOP, X-Frame-Options
 - ✅ **Container-Based Link Checking** - Secure lychee alternative avoiding CVEs
+- ✅ **Transform Rules** - Security headers enforced at Cloudflare edge
+- ✅ **Query Pattern Blocking** - XSS/injection prevention via WAF rules
 
 #### **🔐 Supply Chain Security**
 - ✅ **GitHub Artifact Attestations** - Build provenance for all releases
@@ -454,6 +463,9 @@ Every push to `main` triggers our comprehensive security validation pipeline:
 - ✅ **SBOM Generation** - Complete software bill of materials in SPDX format
 - ✅ **Fail-Closed Gates** - Deployment blocked if attestations/signatures missing
 - ✅ **Immutable Release Artifacts** - Signed manifests with complete metadata
+- ✅ **Digest Verification** - Exact SHA-256 matching before deployment
+- ✅ **CODEOWNERS Protection** - Security team review required for critical files
+- ✅ **Signed Commits** - Branch protection with GPG signature enforcement
 
 ---
 
