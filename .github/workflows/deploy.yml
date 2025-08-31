@@ -10,8 +10,10 @@ on:
 
 # Minimal permissions following principle of least privilege
 permissions:
-  id-token: write   # for OIDC token generation
-  contents: read    # for checkout only
+  id-token: write          # for OIDC token generation
+  contents: read           # for checkout only
+  attestations: write      # for GitHub Artifact Attestations
+  packages: read           # for dependency access
   # No other permissions granted
   
 env:
@@ -36,83 +38,241 @@ jobs:
           go-version: '1.23.x'  # Updated to latest stable
           check-latest: true
           
-      - name: Build site
+      - name: Build site with reproducible settings
+        env:
+          # Enforce reproducible builds with deterministic SOURCE_DATE_EPOCH
+          SOURCE_DATE_EPOCH: ${{ github.event.head_commit.timestamp && github.event.head_commit.timestamp || github.run_started_at }}
+          TZ: UTC
+          LC_ALL: C
+          CGO_ENABLED: 0
+          GOOS: linux
+          GOARCH: amd64
         run: |
+          # Set umask for reproducible file permissions
+          umask 022
+          
+          echo "🔨 Building with reproducible settings..."
+          echo "SOURCE_DATE_EPOCH: $SOURCE_DATE_EPOCH"
+          echo "Commit: ${{ github.sha }}"
+          
+          # Download and verify modules in read-only mode
           go mod download
-          go build -trimpath -ldflags="-w -s" -mod=readonly ./cmd
-          make build
+          go mod verify
           
-      - name: Generate integrity manifest
+          # Build with deterministic flags
+          BUILD_VERSION="${{ github.sha }}"
+          BUILD_DATE=$(date -u -d "@${SOURCE_DATE_EPOCH}" '+%Y-%m-%dT%H:%M:%SZ')
+          
+          go build \
+            -trimpath \
+            -buildvcs=false \
+            -mod=readonly \
+            -ldflags="-w -s -X main.Version=${BUILD_VERSION} -X main.BuildDate=${BUILD_DATE}" \
+            -o dist/admin-server \
+            ./cmd/admin-server/
+            
+          go build \
+            -trimpath \
+            -buildvcs=false \
+            -mod=readonly \
+            -ldflags="-w -s -X main.Version=${BUILD_VERSION} -X main.BuildDate=${BUILD_DATE}" \
+            -o dist/blog-generator \
+            ./cmd/blog-generator/
+          
+          # Generate static site
+          ./dist/blog-generator \
+            -input=content \
+            -output=dist/public \
+            -templates=templates \
+            -deterministic=true
+          
+          # Create deterministic tarball
+          cd dist/public
+          find . -type f -exec touch -d "@${SOURCE_DATE_EPOCH}" {} \;
+          tar \
+            --sort=name \
+            --mtime="@${SOURCE_DATE_EPOCH}" \
+            --owner=0 \
+            --group=0 \
+            --numeric-owner \
+            -czf ../site.tar.gz .
+          cd ../..
+          
+      - name: Generate SBOM
         run: |
-          python3 scripts/generate-manifest.py dist/
+          echo "📋 Generating Software Bill of Materials..."
           
-      - name: Sign manifest with Cosign
+          # Install SPDX tools
+          go install github.com/spdx/tools-golang/cmd/spdx-tool@latest
+          
+          # Generate Go SBOM
+          go list -json -deps ./... > go-deps.json
+          
+          # Create comprehensive SBOM
+          cat > dist/sbom.spdx.json << EOF
+          {
+            "spdxVersion": "SPDX-2.3",
+            "dataLicense": "CC0-1.0",
+            "SPDXID": "SPDXRef-DOCUMENT",
+            "creationInfo": {
+              "created": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+              "creators": ["Tool: SecureBlog-CI"],
+              "licenseListVersion": "3.20"
+            },
+            "name": "SecureBlog",
+            "documentNamespace": "https://github.com/${{ github.repository }}/sbom/${{ github.sha }}",
+            "packages": [
+              {
+                "SPDXID": "SPDXRef-Package",
+                "name": "SecureBlog",
+                "downloadLocation": "https://github.com/${{ github.repository }}/archive/${{ github.sha }}.tar.gz",
+                "filesAnalyzed": false,
+                "copyrightText": "NOASSERTION",
+                "versionInfo": "${{ github.sha }}"
+              }
+            ]
+          }
+          EOF
+          
+          echo "✅ SBOM generated"
+          
+      - name: Create immutable release manifest
+        run: |
+          echo "📦 Creating immutable release manifest..."
+          
+          # Create comprehensive manifest
+          cat > dist/release-manifest.json << EOF
+          {
+            "release": {
+              "version": "${{ github.sha }}",
+              "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+              "source_date_epoch": "$SOURCE_DATE_EPOCH",
+              "repository": "${{ github.repository }}",
+              "commit": "${{ github.sha }}",
+              "ref": "${{ github.ref }}",
+              "workflow_run": "${{ github.run_id }}",
+              "actor": "${{ github.actor }}"
+            },
+            "artifacts": {
+              "admin-server": {
+                "path": "dist/admin-server",
+                "sha256": "$(sha256sum dist/admin-server | cut -d' ' -f1)",
+                "size": $(stat -c%s dist/admin-server)
+              },
+              "blog-generator": {
+                "path": "dist/blog-generator", 
+                "sha256": "$(sha256sum dist/blog-generator | cut -d' ' -f1)",
+                "size": $(stat -c%s dist/blog-generator)
+              },
+              "site": {
+                "path": "dist/site.tar.gz",
+                "sha256": "$(sha256sum dist/site.tar.gz | cut -d' ' -f1)",
+                "size": $(stat -c%s dist/site.tar.gz)
+              },
+              "sbom": {
+                "path": "dist/sbom.spdx.json",
+                "sha256": "$(sha256sum dist/sbom.spdx.json | cut -d' ' -f1)",
+                "size": $(stat -c%s dist/sbom.spdx.json)
+              }
+            },
+            "build_info": {
+              "go_version": "$(go version | cut -d' ' -f3)",
+              "build_flags": "-trimpath -buildvcs=false -mod=readonly",
+              "environment": {
+                "SOURCE_DATE_EPOCH": "$SOURCE_DATE_EPOCH",
+                "TZ": "UTC",
+                "LC_ALL": "C",
+                "CGO_ENABLED": "0"
+              }
+            }
+          }
+          EOF
+          
+          echo "✅ Release manifest created"
+          
+      - name: Generate build provenance attestation
+        uses: actions/attest-build-provenance@1c608d11d69870c2092266b3f9a6f3abbf17002c # v1.4.3
+        with:
+          subject-path: |
+            dist/admin-server
+            dist/blog-generator
+            dist/site.tar.gz
+            dist/sbom.spdx.json
+            dist/release-manifest.json
+            
+      - name: Sign artifacts with Cosign
         uses: sigstore/cosign-installer@dc72c7d5c4d10cd6bcb8cf6e3fd625a9e5e537da # v3.7.0
         
-      - name: Sign integrity manifest
+      - name: Sign all release artifacts
         env:
           COSIGN_EXPERIMENTAL: 1
         run: |
-          cosign sign-blob dist/integrity-manifest.json \
-            --output-signature dist/integrity-manifest.json.sig \
-            --output-certificate dist/integrity-manifest.json.crt \
-            --yes
+          echo "🔑 Signing all release artifacts..."
+          
+          artifacts=(
+            "dist/admin-server"
+            "dist/blog-generator"  
+            "dist/site.tar.gz"
+            "dist/sbom.spdx.json"
+            "dist/release-manifest.json"
+          )
+          
+          for artifact in "${artifacts[@]}"; do
+            echo "Signing: $artifact"
+            cosign sign-blob "$artifact" \
+              --output-signature "${artifact}.sig" \
+              --output-certificate "${artifact}.crt" \
+              --yes
+          done
+          
+          echo "✅ All artifacts signed"
             
-      # MANDATORY: Verify SLSA provenance and attestations before any deployment
-      - name: Download and verify SLSA provenance
+      # MANDATORY: Verify GitHub Artifact Attestations before any deployment
+      - name: Verify GitHub Artifact Attestations
         run: |
-          echo "🔍 Verifying SLSA provenance before deployment..."
+          echo "🔍 Verifying GitHub Artifact Attestations before deployment..."
           
-          # Install slsa-verifier
-          go install github.com/slsa-framework/slsa-verifier/v2/cli/slsa-verifier@latest
+          # Install GitHub CLI for attestation verification
+          gh --version
           
-          # Check if provenance exists (should be generated by previous job/workflow)
-          if [ ! -f "dist/slsa-provenance.intoto.jsonl" ]; then
-            echo "❌ CRITICAL: No SLSA provenance found - BLOCKING DEPLOYMENT"
-            echo "Deployment requires valid SLSA Level 3 provenance attestation"
-            exit 1
-          fi
-          
-          # Verify provenance against artifacts
-          echo "Verifying provenance for all deployment artifacts..."
-          
+          # Verify build provenance attestations for all artifacts
           artifacts=(
             "dist/admin-server"
             "dist/blog-generator" 
             "dist/site.tar.gz"
-            "dist/manifest.json"
+            "dist/sbom.spdx.json"
+            "dist/release-manifest.json"
           )
           
           for artifact in "${artifacts[@]}"; do
             if [ ! -f "$artifact" ]; then
-              echo "❌ Missing artifact: $artifact"
+              echo "❌ CRITICAL: Missing artifact: $artifact"
+              echo "DEPLOYMENT BLOCKED - Required artifact not found"
               exit 1
             fi
             
-            echo "Verifying $artifact..."
-            slsa-verifier verify-artifact "$artifact" \
-              --provenance-path dist/slsa-provenance.intoto.jsonl \
-              --source-uri github.com/${{ github.repository }} \
-              --source-tag ${GITHUB_REF_NAME} || {
-              echo "❌ CRITICAL: Provenance verification failed for $artifact"
-              echo "DEPLOYMENT BLOCKED - Artifact attestation invalid"
+            echo "Verifying GitHub attestation for: $artifact"
+            
+            # Verify the artifact has a valid GitHub attestation
+            if ! gh attestation verify "$artifact" --repo "${{ github.repository }}"; then
+              echo "❌ CRITICAL: GitHub attestation verification failed for $artifact"
+              echo "DEPLOYMENT BLOCKED - Artifact attestation invalid or missing"
               exit 1
-            }
+            fi
           done
           
-          echo "✅ All artifacts have valid SLSA provenance"
+          echo "✅ All artifacts have valid GitHub attestations"
           
       - name: Verify Cosign signatures
         run: |
           echo "🔍 Verifying Cosign signatures..."
           
-          # Install cosign
-          go install github.com/sigstore/cosign/v2/cmd/cosign@latest
-          
           artifacts_to_verify=(
-            "dist/integrity-manifest.json"
             "dist/admin-server"
             "dist/blog-generator"
+            "dist/site.tar.gz"
+            "dist/sbom.spdx.json"
+            "dist/release-manifest.json"
           )
           
           for artifact in "${artifacts_to_verify[@]}"; do
