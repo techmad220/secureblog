@@ -5,7 +5,12 @@ compatibility_date = "2024-08-31"
 compatibility_flags = ["nodejs_compat"]
 
 [site]
-bucket = "./dist"
+bucket = "./dist/public"
+
+# Bind static assets for the improved Worker
+[[env.production.services]]
+binding = "ASSETS"
+service = "secureblog-assets"
 
 [env.production]
 vars = { ENVIRONMENT = "production" }
@@ -49,8 +54,8 @@ BOT_PROTECTION_ENABLED = "true"
 GEOGRAPHIC_BLOCKING = "false"  # Set to "true" and configure if needed
 ASN_BLOCKING = "false"        # Set to "true" and configure if needed
 
-# Ultra-strict CSP for zero JavaScript
-CSP = "default-src 'none'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'none'; script-src 'none'; object-src 'none'; frame-src 'none'; worker-src 'none'; frame-ancestors 'none'; form-action 'none'; upgrade-insecure-requests; block-all-mixed-content"
+# Ultra-strict CSP for zero JavaScript (but usable for static content)
+CSP = "default-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'; script-src 'none'; connect-src 'none'; img-src 'self' data:; style-src 'self'; font-src 'self'; object-src 'none'; media-src 'self'; worker-src 'none'; manifest-src 'self'; frame-src 'none'; upgrade-insecure-requests; block-all-mixed-content"
 REFERRER_POLICY = "strict-origin-when-cross-origin"
 PERMISSIONS_POLICY = "accelerometer=(), battery=(), camera=(), display-capture=(), geolocation=(), gyroscope=(), microphone=(), payment=(), usb=(), bluetooth=(), autoplay=(), fullscreen=(), picture-in-picture=()"
 COOP = "same-origin"

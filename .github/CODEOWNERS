@@ -1,35 +1,30 @@
-# CODEOWNERS - Require approval for security-critical paths
-# https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+# Global code ownership and security review requirements
+# All changes require security team review
 
-# Security-critical paths require 2+ reviewers
-/templates/ @techmad220 @security-team
-/scripts/security-* @techmad220 @security-team
-/scripts/deploy-* @techmad220 @security-team
-/scripts/verify-* @techmad220 @security-team
+# Security-critical files require security maintainer approval
+/.github/workflows/                    @secureblog/security-team @secureblog/devops
+/scripts/                              @secureblog/security-team
+/nginx-ultra-hardened.conf            @secureblog/security-team @secureblog/devops
+/wrangler.toml                         @secureblog/security-team
+/scripts/edge-runtime-gates.js         @secureblog/security-team
+/.well-known/security.txt              @secureblog/security-team
+/static/pgp-key.asc                    @secureblog/security-team
 
-# Workflow files are critical infrastructure
-/.github/workflows/ @techmad220 @security-team
-/.github/actions/ @techmad220 @security-team
+# Content and build processes require security review
+/src/                                  @secureblog/content-team @secureblog/security-team
+/content/                              @secureblog/content-team @secureblog/security-team
+/package.json                          @secureblog/security-team @secureblog/devops
+/package-lock.json                     @secureblog/security-team @secureblog/devops
+/go.mod                                @secureblog/security-team @secureblog/devops
+/go.sum                                @secureblog/security-team @secureblog/devops
 
-# Build and deployment scripts
-/build-sandbox.sh @techmad220 @security-team
-/Dockerfile* @techmad220 @security-team
-/docker-compose* @techmad220 @security-team
+# Documentation that affects security posture
+/README.md                             @secureblog/security-team
+/SECURITY.md                           @secureblog/security-team
+/docs/security/                        @secureblog/security-team
 
-# Security configuration files
-/security/ @techmad220 @security-team
-/.well-known/ @techmad220 @security-team
-/nginx/ @techmad220 @security-team
+# Root-level configuration files
+/*                                     @secureblog/security-team
 
-# Authentication and core server code
-/cmd/admin-server/auth.go @techmad220 @security-team
-/cmd/admin-server/main.go @techmad220 @security-team
-
-# Dependency management
-/go.mod @techmad220 @security-team
-/go.sum @techmad220 @security-team
-/package*.json @techmad220 @security-team
-/yarn.lock @techmad220 @security-team
-
-# Default fallback - all other files need 1+ reviewer
-* @techmad220
+# Default fallback - all other files
+*                                      @secureblog/code-reviewers @secureblog/security-team

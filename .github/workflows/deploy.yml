@@ -326,20 +326,126 @@ jobs:
           
           echo "✅ SBOM validation successful"
           
-      # Fail-closed deployment gate
-      - name: Deployment Security Gate
+      # MANDATORY: Verify exact artifact digest before deployment
+      - name: Generate and verify artifact digests
         run: |
-          echo "🚦 DEPLOYMENT SECURITY GATE"
-          echo "=========================="
+          echo "🔍 Generating artifact digests for verification..."
+          
+          # Generate digests for all deployment artifacts
+          sha256sum dist/site.tar.gz > dist/site.tar.gz.digest
+          sha256sum dist/sbom.spdx.json > dist/sbom.spdx.json.digest
+          sha256sum dist/release-manifest.json > dist/release-manifest.json.digest
+          
+          echo "📋 Artifact digests:"
+          cat dist/*.digest
+          
+          # Store digests for attestation verification
+          SITE_DIGEST=$(sha256sum dist/site.tar.gz | cut -d' ' -f1)
+          SBOM_DIGEST=$(sha256sum dist/sbom.spdx.json | cut -d' ' -f1)
+          MANIFEST_DIGEST=$(sha256sum dist/release-manifest.json | cut -d' ' -f1)
+          
+          echo "SITE_DIGEST=$SITE_DIGEST" >> $GITHUB_ENV
+          echo "SBOM_DIGEST=$SBOM_DIGEST" >> $GITHUB_ENV
+          echo "MANIFEST_DIGEST=$MANIFEST_DIGEST" >> $GITHUB_ENV
+          
+      # Verify SLSA provenance against exact artifact digests
+      - name: Verify SLSA provenance for exact artifacts
+        run: |
+          echo "🔍 Verifying SLSA provenance against exact artifact digests..."
+          
+          # Download and verify SLSA provenance
+          if ! gh attestation verify dist/site.tar.gz --repo "${{ github.repository }}" --digest-alg sha256; then
+            echo "❌ CRITICAL: SLSA provenance verification FAILED for site.tar.gz"
+            echo "Digest: $SITE_DIGEST"
+            echo "DEPLOYMENT BLOCKED - Cannot deploy without valid provenance"
+            exit 1
+          fi
+          
+          if ! gh attestation verify dist/sbom.spdx.json --repo "${{ github.repository }}" --digest-alg sha256; then
+            echo "❌ CRITICAL: SLSA provenance verification FAILED for sbom.spdx.json"
+            echo "Digest: $SBOM_DIGEST"
+            echo "DEPLOYMENT BLOCKED - Cannot deploy without valid SBOM provenance"
+            exit 1
+          fi
+          
+          if ! gh attestation verify dist/release-manifest.json --repo "${{ github.repository }}" --digest-alg sha256; then
+            echo "❌ CRITICAL: SLSA provenance verification FAILED for release-manifest.json"
+            echo "Digest: $MANIFEST_DIGEST"
+            echo "DEPLOYMENT BLOCKED - Cannot deploy without valid manifest provenance"
+            exit 1
+          fi
+          
+          echo "✅ All artifacts have valid SLSA provenance for exact digests"
+          
+      # Verify Cosign signatures against exact digests
+      - name: Verify Cosign signatures for exact artifacts  
+        run: |
+          echo "🔍 Verifying Cosign signatures against exact artifact digests..."
+          
+          # Verify signatures using digests
+          artifacts_to_verify=(
+            "dist/admin-server"
+            "dist/blog-generator"
+            "dist/site.tar.gz"
+            "dist/sbom.spdx.json"
+            "dist/release-manifest.json"
+          )
+          
+          for artifact in "${artifacts_to_verify[@]}"; do
+            sig_file="${artifact}.sig"
+            cert_file="${artifact}.crt"
+            
+            if [ ! -f "$sig_file" ] || [ ! -f "$cert_file" ]; then
+              echo "❌ CRITICAL: Missing signature files for $artifact"
+              echo "DEPLOYMENT BLOCKED - All artifacts must be signed"
+              exit 1
+            fi
+            
+            # Get artifact digest
+            artifact_digest=$(sha256sum "$artifact" | cut -d' ' -f1)
+            echo "Verifying signature for $artifact (digest: $artifact_digest)"
+            
+            if ! cosign verify-blob "$artifact" \
+                --signature "$sig_file" \
+                --certificate "$cert_file" \
+                --certificate-identity-regexp=".*" \
+                --certificate-oidc-issuer-regexp="https://token.actions.githubusercontent.com"; then
+              echo "❌ CRITICAL: Signature verification FAILED for $artifact"  
+              echo "Artifact digest: $artifact_digest"
+              echo "DEPLOYMENT BLOCKED - Invalid signature"
+              exit 1
+            fi
+            
+            echo "✅ Signature verified for $artifact"
+          done
+          
+          echo "✅ All signatures verified successfully for exact artifact digests"
+          
+      # Final fail-closed deployment gate
+      - name: Deployment Security Gate (Fail-Closed)
+        run: |
+          echo "🚦 DEPLOYMENT SECURITY GATE - FAIL-CLOSED VERIFICATION"
+          echo "======================================================"
           echo ""
-          echo "✅ SLSA provenance verified"
-          echo "✅ Cosign signatures verified" 
-          echo "✅ SBOM validated"
-          echo "✅ All attestations present and valid"
+          echo "✅ SLSA provenance verified for exact artifact digests"
+          echo "✅ Cosign signatures verified for exact artifact digests" 
+          echo "✅ SBOM validated and attested"
+          echo "✅ All deployment artifacts cryptographically verified"
           echo ""
-          echo "🚀 DEPLOYMENT APPROVED - All security gates passed"
+          echo "📋 Verified Artifacts:"
+          echo "  • site.tar.gz (digest: $SITE_DIGEST)"
+          echo "  • sbom.spdx.json (digest: $SBOM_DIGEST)" 
+          echo "  • release-manifest.json (digest: $MANIFEST_DIGEST)"
           echo ""
-          echo "Deployment will FAIL CLOSED if any attestation is missing or invalid."
+          echo "🚀 DEPLOYMENT APPROVED - All fail-closed security gates passed"
+          echo ""
+          echo "⚠️  CRITICAL: This deployment will FAIL if:"
+          echo "   - Any signature is invalid or missing"
+          echo "   - SLSA provenance cannot be verified"
+          echo "   - Artifact digests don't match attestations"
+          echo "   - SBOM is missing or invalid"
+          echo ""
+          echo "🔒 Zero-trust deployment: Only cryptographically verified artifacts deployed"
           
       - name: Configure AWS credentials (for OIDC)
         if: ${{ env.USE_AWS == 'true' }}

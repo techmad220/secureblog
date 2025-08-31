@@ -1,227 +1,163 @@
-// edge-runtime-gates.js - Cloudflare Worker with strict security gates
-// Deploy this to Cloudflare Workers to add edge-level security
-
+// edge-runtime-gates.js - Fort Knox Cloudflare Worker with strict security gates
 export default {
-  async fetch(request, env, ctx) {
-    const url = new URL(request.url);
-    const method = request.method;
-    const userAgent = request.headers.get('user-agent') || '';
-    const cf = request.cf || {};
-    
-    // Security gates configuration
-    const SECURITY_CONFIG = {
-      // Method restrictions
-      allowedMethods: ['GET', 'HEAD', 'OPTIONS'],
-      
-      // Request size limits (1KB as specified)
-      maxBodySize: 1024, // 1KB
-      maxQueryStringLength: 256,
-      maxUrlLength: 2048,
-      
-      // Rate limiting (per minute)
-      rateLimit: {
-        requests: 60,    // 60 requests per minute per IP
-        burstLimit: 10,  // 10 requests in 10 seconds
-      },
-      
-      // Geographic restrictions (if needed)
-      blockedCountries: [], // Add country codes to block
-      
-      // ASN blocking (if needed)  
-      blockedASNs: [], // Add ASN numbers to block malicious networks
-      
-      // Bot protection
-      requireJsChallenge: false, // Set to true to challenge suspicious bots
-      
-      // Content Security Policy
-      csp: "default-src 'none'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'none'; script-src 'none'; object-src 'none'; frame-src 'none'; worker-src 'none'; frame-ancestors 'none'; form-action 'none'; upgrade-insecure-requests",
-      
-      // Security headers
-      securityHeaders: {
-        'X-Frame-Options': 'DENY',
-        'X-Content-Type-Options': 'nosniff', 
-        'X-XSS-Protection': '1; mode=block',
-        'Referrer-Policy': 'strict-origin-when-cross-origin',
-        'Permissions-Policy': 'geolocation=(), microphone=(), camera=(), payment=(), usb=(), bluetooth=(), accelerometer=(), gyroscope=(), magnetometer=()',
-        'Cross-Origin-Embedder-Policy': 'require-corp',
-        'Cross-Origin-Opener-Policy': 'same-origin',
-        'Cross-Origin-Resource-Policy': 'same-origin'
-      }
-    };
-    
-    try {
-      // Gate 1: Method validation
-      if (!SECURITY_CONFIG.allowedMethods.includes(method)) {
-        console.log(`Blocked method: ${method} from ${cf.colo}`);
-        return new Response('Method Not Allowed', {
-          status: 405,
-          headers: {
-            'Allow': SECURITY_CONFIG.allowedMethods.join(', '),
-            ...SECURITY_CONFIG.securityHeaders
-          }
-        });
-      }
-      
-      // Gate 2: URL length validation
-      if (request.url.length > SECURITY_CONFIG.maxUrlLength) {
-        console.log(`Blocked oversized URL: ${request.url.length} bytes`);
-        return new Response('Request-URI Too Long', {
-          status: 414,
-          headers: SECURITY_CONFIG.securityHeaders
-        });
-      }
-      
-      // Gate 3: Query string length validation
-      if (url.search.length > SECURITY_CONFIG.maxQueryStringLength) {
-        console.log(`Blocked oversized query string: ${url.search.length} bytes`);
-        return new Response('Query String Too Long', {
-          status: 413,
-          headers: SECURITY_CONFIG.securityHeaders
-        });
-      }
-      
-      // Gate 4: Request body size validation (for non-GET requests)
-      if (['POST', 'PUT', 'PATCH'].includes(method)) {
-        const contentLength = parseInt(request.headers.get('content-length') || '0');
-        if (contentLength > SECURITY_CONFIG.maxBodySize) {
-          console.log(`Blocked oversized body: ${contentLength} bytes`);
-          return new Response('Payload Too Large', {
-            status: 413,
-            headers: SECURITY_CONFIG.securityHeaders
-          });
-        }
-      }
-      
-      // Gate 5: Geographic blocking
-      if (SECURITY_CONFIG.blockedCountries.includes(cf.country)) {
-        console.log(`Blocked country: ${cf.country}`);
-        return new Response('Access Denied', {
-          status: 403,
-          headers: SECURITY_CONFIG.securityHeaders
-        });
-      }
-      
-      // Gate 6: ASN blocking
-      if (SECURITY_CONFIG.blockedASNs.includes(cf.asn)) {
-        console.log(`Blocked ASN: ${cf.asn}`);
-        return new Response('Access Denied', {
-          status: 403,
-          headers: SECURITY_CONFIG.securityHeaders
-        });
-      }
-      
-      // Gate 7: Rate limiting (simple implementation)
-      const clientIP = request.headers.get('CF-Connecting-IP') || 'unknown';
-      const rateLimitKey = `rate_limit:${clientIP}`;
-      const burstKey = `burst:${clientIP}`;
-      
-      // Note: In production, you'd use Cloudflare's KV or Durable Objects for persistence
-      // This is a simplified version for demonstration
-      
-      // Gate 8: Bot challenge (if configured)
-      if (SECURITY_CONFIG.requireJsChallenge) {
-        const botScore = cf.botManagement?.score || 0;
-        if (botScore > 30) { // Cloudflare bot scores: 1-99 (higher = more likely bot)
-          console.log(`Potential bot detected: score ${botScore}`);
-          // You could return a challenge page here
-        }
-      }
-      
-      // Gate 9: Suspicious pattern detection
-      const suspiciousPatterns = [
-        /\.\.\//, // Path traversal
-        /[<>'"]/, // Potential XSS chars in URL
-        /javascript:/i, // JavaScript URLs
-        /data:text\/html/i, // Data URLs with HTML
-        /vbscript:/i, // VBScript URLs
-      ];
-      
-      for (const pattern of suspiciousPatterns) {
-        if (pattern.test(url.pathname + url.search)) {
-          console.log(`Blocked suspicious pattern in URL: ${url.pathname + url.search}`);
-          return new Response('Bad Request', {
-            status: 400,
-            headers: SECURITY_CONFIG.securityHeaders
-          });
-        }
-      }
-      
-      // Gate 10: Static file enforcement
-      // Only allow requests to known static file types or index pages
-      const allowedExtensions = ['.html', '.css', '.png', '.jpg', '.jpeg', '.gif', '.svg', '.ico', '.woff', '.woff2', '.ttf', '.eot', '.webp'];
-      const allowedPaths = ['/', '/index.html', '/robots.txt', '/sitemap.xml', '/security.txt', '/.well-known/security.txt'];
-      
-      const isStaticFile = allowedExtensions.some(ext => url.pathname.endsWith(ext));
-      const isAllowedPath = allowedPaths.includes(url.pathname);
-      
-      if (!isStaticFile && !isAllowedPath) {
-        console.log(`Blocked non-static path: ${url.pathname}`);
-        return new Response('Not Found', {
-          status: 404,
-          headers: SECURITY_CONFIG.securityHeaders
-        });
-      }
-      
-      // All gates passed - proceed to origin
-      console.log(`Request approved: ${method} ${url.pathname} from ${cf.country}/${cf.colo}`);
-      
-      // Fetch from origin (or serve from cache)
-      const response = await fetch(request);
-      
-      // Clone response to modify headers
-      const modifiedResponse = new Response(response.body, {
-        status: response.status,
-        statusText: response.statusText,
-        headers: response.headers
-      });
-      
-      // Apply security headers to all responses
-      Object.entries(SECURITY_CONFIG.securityHeaders).forEach(([key, value]) => {
-        modifiedResponse.headers.set(key, value);
-      });
-      
-      // Set Content-Security-Policy
-      modifiedResponse.headers.set('Content-Security-Policy', SECURITY_CONFIG.csp);
-      
-      // Add HSTS for HTTPS responses
-      if (url.protocol === 'https:') {
-        modifiedResponse.headers.set('Strict-Transport-Security', 'max-age=31536000; includeSubDomains; preload');
-      }
-      
-      // Cache control for static assets
-      if (isStaticFile && !url.pathname.endsWith('.html')) {
-        // Long cache for versioned static assets
-        if (url.pathname.match(/-[a-f0-9]{10}\./)) {
-          modifiedResponse.headers.set('Cache-Control', 'public, max-age=31536000, immutable');
-          modifiedResponse.headers.set('X-Cache-Status', 'IMMUTABLE');
-        } else {
-          // Standard cache for other static files
-          modifiedResponse.headers.set('Cache-Control', 'public, max-age=3600');
-          modifiedResponse.headers.set('X-Cache-Status', 'STATIC');
-        }
-      } else {
-        // No cache for HTML files
-        modifiedResponse.headers.set('Cache-Control', 'no-cache, no-store, must-revalidate');
-        modifiedResponse.headers.set('Pragma', 'no-cache');
-        modifiedResponse.headers.set('X-Cache-Status', 'NO-CACHE');
-      }
-      
-      // Add security telemetry headers
-      modifiedResponse.headers.set('X-Security-Gates', 'PASSED');
-      modifiedResponse.headers.set('X-CF-Country', cf.country || 'unknown');
-      modifiedResponse.headers.set('X-CF-Colo', cf.colo || 'unknown');
-      
-      return modifiedResponse;
-      
-    } catch (error) {
-      console.error('Edge security error:', error);
-      
-      // Return secure error response
-      return new Response('Internal Server Error', {
-        status: 500,
-        headers: SECURITY_CONFIG.securityHeaders
+  async fetch(req, env, ctx) {
+    // Only GET/HEAD methods allowed
+    const method = req.method.toUpperCase();
+    if (method !== "GET" && method !== "HEAD") {
+      return new Response("Method Not Allowed", {
+        status: 405,
+        headers: { "Allow": "GET, HEAD" }
       });
     }
+
+    // Block dangerous query patterns immediately
+    const url = new URL(req.url);
+    const queryString = url.search.toLowerCase();
+    const dangerousPatterns = [
+      '__proto__',
+      '<script',
+      'javascript:',
+      'vbscript:',
+      'data:text/html',
+      'onload=',
+      'onerror=',
+      'onclick=',
+      'eval(',
+      'alert(',
+      'document.cookie',
+      'document.location'
+    ];
+    
+    for (const pattern of dangerousPatterns) {
+      if (queryString.includes(pattern) || url.pathname.toLowerCase().includes(pattern)) {
+        console.log(`Blocked dangerous pattern: ${pattern} in ${url.pathname}${url.search}`);
+        return new Response("Blocked by security policy", { 
+          status: 451,
+          headers: { "Content-Type": "text/plain" }
+        });
+      }
+    }
+
+    // 1KB query string limit
+    if (url.search.length > 1024) {
+      return new Response("Query string too large", { status: 413 });
+    }
+
+    let response;
+    
+    try {
+      // Fetch from bound asset (Pages/ASSETS) or origin
+      response = env.ASSETS ? await env.ASSETS.fetch(req) : await fetch(req);
+    } catch (error) {
+      console.error('Fetch error:', error);
+      return new Response("Service Unavailable", { status: 503 });
+    }
+
+    // Clone to inspect & modify headers
+    const newHeaders = new Headers(response.headers);
+
+    // Fort Knox security headers (enforced at edge)
+    newHeaders.set("Content-Security-Policy",
+      "default-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'; script-src 'none'; connect-src 'none'; img-src 'self' data:; style-src 'self'; font-src 'self'; object-src 'none'; media-src 'self'; worker-src 'none'; manifest-src 'self'; frame-src 'none'; upgrade-insecure-requests");
+    
+    newHeaders.set("X-Content-Type-Options", "nosniff");
+    newHeaders.set("X-Frame-Options", "DENY");
+    newHeaders.set("Referrer-Policy", "no-referrer");
+    newHeaders.set("Strict-Transport-Security", "max-age=63072000; includeSubDomains; preload");
+    
+    // Comprehensive Permissions Policy
+    newHeaders.set("Permissions-Policy", "accelerometer=(), ambient-light-sensor=(), autoplay=(), battery=(), camera=(), cross-origin-isolated=(), display-capture=(), document-domain=(), encrypted-media=(), execution-while-not-rendered=(), execution-while-out-of-viewport=(), fullscreen=(), geolocation=(), gyroscope=(), keyboard-map=(), magnetometer=(), microphone=(), midi=(), payment=(), picture-in-picture=(), publickey-credentials-get=(), screen-wake-lock=(), sync-xhr=(), usb=(), web-share=(), xr-spatial-tracking=()");
+    
+    // Cross-origin policies
+    newHeaders.set("Cross-Origin-Embedder-Policy", "require-corp");
+    newHeaders.set("Cross-Origin-Opener-Policy", "same-origin");
+    newHeaders.set("Cross-Origin-Resource-Policy", "same-origin");
+
+    // Cache policy: immutable for hashed assets, no-store for HTML
+    const contentType = response.headers.get("Content-Type") || "";
+    const pathname = url.pathname;
+    
+    if (contentType.includes("text/html")) {
+      newHeaders.set("Cache-Control", "no-store, no-cache, must-revalidate");
+      newHeaders.set("Pragma", "no-cache");
+      newHeaders.set("Expires", "0");
+    } else if (/\-[0-9a-f]{8,}\.(css|png|jpg|jpeg|webp|svg|woff2?|ttf|eot|ico|gif)$/i.test(pathname)) {
+      // Content-hashed immutable assets
+      newHeaders.set("Cache-Control", "public, max-age=31536000, immutable");
+      newHeaders.set("X-Cache-Status", "IMMUTABLE");
+    } else if (/\.(css|png|jpg|jpeg|webp|svg|woff2?|ttf|eot|ico|gif)$/i.test(pathname)) {
+      // Regular static assets
+      newHeaders.set("Cache-Control", "public, max-age=3600");
+      newHeaders.set("X-Cache-Status", "STATIC");
+    }
+
+    // Zero-JS body guard for HTML (belt and suspenders)
+    if (contentType.includes("text/html")) {
+      try {
+        const body = await response.text();
+        const lowered = body.toLowerCase();
+        
+        // Detect any JavaScript that might have slipped through
+        const jsPatterns = [
+          '<script',
+          'javascript:',
+          'vbscript:',
+          'onload=',
+          'onclick=',
+          'onerror=',
+          'onmouseover=',
+          'onfocus=',
+          'onblur=',
+          'onsubmit=',
+          'document.location',
+          'document.cookie',
+          'window.location',
+          'eval(',
+          'settimeout(',
+          'setinterval(',
+          'innerhtml='
+        ];
+        
+        for (const pattern of jsPatterns) {
+          if (lowered.includes(pattern)) {
+            console.log(`SECURITY VIOLATION: JavaScript detected in HTML: ${pattern}`);
+            return new Response("Blocked by zero-JS policy - JavaScript detected", { 
+              status: 451, 
+              headers: newHeaders 
+            });
+          }
+        }
+        
+        // Check for suspicious CSS patterns
+        const cssPatterns = [
+          'expression(',
+          '-moz-binding',
+          'behavior:',
+          'javascript:',
+          '@import',
+          'url(javascript:',
+          'url(data:text/html'
+        ];
+        
+        for (const pattern of cssPatterns) {
+          if (lowered.includes(pattern)) {
+            console.log(`SECURITY VIOLATION: Dangerous CSS detected: ${pattern}`);
+            return new Response("Blocked by security policy - Dangerous CSS detected", { 
+              status: 451, 
+              headers: newHeaders 
+            });
+          }
+        }
+        
+        return new Response(body, { status: response.status, headers: newHeaders });
+      } catch (error) {
+        console.error('Body inspection error:', error);
+        return new Response("Content inspection failed", { status: 500, headers: newHeaders });
+      }
+    }
+
+    // For non-HTML responses, return with security headers
+    return new Response(response.body, { status: response.status, headers: newHeaders });
   }
 };
 

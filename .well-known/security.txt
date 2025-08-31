@@ -1,57 +1,69 @@
-Contact: mailto:security@secureblog.com
-Contact: https://github.com/techmad220/secureblog/security
-Expires: 2025-12-31T23:59:59Z
-Encryption: https://keys.openpgp.org/vks/v1/by-fingerprint/your-pgp-fingerprint-here
-Acknowledgments: https://github.com/techmad220/secureblog/security/acknowledgments
-Policy: https://github.com/techmad220/secureblog/security/policy
-Hiring: https://github.com/techmad220/secureblog/jobs
+# Security Policy - SecureBlog
+# Contact information for security researchers and vulnerability disclosure
 
-# Security Policy for SecureBlog
+Contact: security@secureblog.com
+Contact: https://secureblog.com/security-contact
+Expires: 2025-08-31T23:59:59Z
+Encryption: https://secureblog.com/pgp-key.asc
+Preferred-Languages: en
+Policy: https://secureblog.com/security-policy
+Acknowledgments: https://secureblog.com/security-acknowledgments
+Hiring: https://secureblog.com/careers
 
-This project implements a Fort Knox-level secure static blog generator.
+# Vulnerability Disclosure Program
+# We appreciate security researchers who help us maintain the security
+# of our platform. Please report vulnerabilities responsibly.
 
-## Scope
-- All code in this repository
-- Deployed instances at secureblog.com
-- CI/CD pipelines and build processes
+# SCOPE - IN SCOPE
+# - secureblog.com and all subdomains
+# - GitHub repository: https://github.com/secureblog/secureblog
+# - Build and deployment infrastructure
+# - Client-side vulnerabilities (XSS, CSRF, etc.)
+# - Server-side vulnerabilities (injection, authentication bypass, etc.)
+# - Infrastructure vulnerabilities (misconfigurations, exposed services)
+# - Cryptographic implementation issues
 
-## What we're looking for
-- Security vulnerabilities in the blog generator
-- Authentication bypasses in the admin interface
-- Content injection or XSS in the static output
-- Build system compromise vectors
-- Supply chain security issues
+# SCOPE - OUT OF SCOPE
+# - Social engineering attacks
+# - Physical attacks against our infrastructure
+# - DDoS attacks
+# - Issues in third-party services beyond our control
+# - Vulnerabilities requiring physical access to user devices
+# - Issues that require unlikely user interaction
+# - Vulnerabilities in outdated browsers not supported by our platform
 
-## What we're NOT looking for
-- Social engineering attacks
-- Physical security issues
-- DDoS attacks
-- Issues in third-party services we don't control
+# RESPONSE TIMELINE
+# - Initial acknowledgment: Within 24 hours
+# - Triage and assessment: Within 72 hours
+# - Regular updates: Every 5 business days
+# - Resolution target: 30-90 days depending on severity
 
-## Responsible Disclosure
-1. Report security issues via GitHub Security Advisories or security@secureblog.com
-2. Do not publicly disclose until we've had time to respond
-3. Provide clear steps to reproduce the issue
-4. Allow us reasonable time to fix the issue
+# RESPONSIBLE DISCLOSURE
+# Please allow us reasonable time to address issues before public disclosure.
+# We commit to working with you throughout the process and providing
+# credit for your contribution where appropriate.
 
-## Bug Bounty
-While we don't have a formal bug bounty program, we deeply appreciate security research and will acknowledge researchers who help improve our security.
+# LEGAL SAFE HARBOR
+# We will not pursue legal action against security researchers who:
+# - Act in good faith
+# - Avoid privacy violations and data destruction
+# - Report vulnerabilities promptly and confidentially
+# - Do not exploit vulnerabilities beyond proof-of-concept
 
-## Security Features
-- Zero JavaScript on public site
-- Content Security Policy with 'none' default
-- Argon2id password hashing for admin
-- Signed content integrity manifests
-- Sandboxed build processes
-- SLSA Build Provenance
-- Cosign signature verification
+# RECOGNITION
+# We maintain a hall of fame for security researchers who have helped
+# improve our security posture. Contributors may be eligible for:
+# - Public recognition (with permission)
+# - Swag and merchandise
+# - Monetary rewards for high-impact findings (at our discretion)
 
-## Security Hardening
-- All dependencies pinned to specific SHAs
-- Reproducible builds with SOURCE_DATE_EPOCH
-- Comprehensive security regression testing
-- Edge-level signature verification
-- Minimal attack surface (GET/HEAD only)
+# EMERGENCY CONTACT
+# For critical security issues requiring immediate attention:
+# Email: critical-security@secureblog.com (monitored 24/7)
+# Signal: +1-555-SEC-BLOG (for highly sensitive communications)
 
-Last updated: 2024-01-01
-Canonical: https://secureblog.com/.well-known/security.txt
+# ADDITIONAL INFORMATION
+# - All communications will be handled confidentially
+# - We support coordinated disclosure practices
+# - Security fixes will be prioritized based on severity
+# - We follow industry-standard CVSS scoring for vulnerability assessment
